@@ -12,7 +12,6 @@ struct ContentView: View {
                 .padding(.top)
 
             VStack {
-                // FIX: добавлен \ для интерполяции — было "(Int(...))°C"
                 Text("\(Int(obdManager.currentTemperature))°C")
                     .font(.system(size: 74, weight: .bold, design: .rounded))
                     .foregroundColor(temperatureColor)
@@ -36,12 +35,15 @@ struct ContentView: View {
             Button(action: {
                 obdManager.startConnection()
             }) {
-                Text(obdManager.connectionStatus.contains("Подключено") ? "Мониторинг активен" : "Подключиться к ELM327")
+                Text(obdManager.connectionStatus.contains("Подключено")
+                     ? "Мониторинг активен"
+                     : "Подключиться к ELM327")
                     .font(.headline)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(obdManager.connectionStatus.contains("Подключено") ? Color.green : Color.blue)
+                    .background(obdManager.connectionStatus.contains("Подключено")
+                                ? Color.green : Color.blue)
                     .cornerRadius(12)
             }
             .disabled(obdManager.connectionStatus.contains("Подключено"))
@@ -56,6 +58,9 @@ struct ContentView: View {
             Spacer()
         }
         .padding()
+        .onDisappear {
+            obdManager.stopConnection()
+        }
     }
 
     private var temperatureColor: Color {
