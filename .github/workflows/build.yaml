@@ -16,12 +16,6 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_16.app
 
-    - name: Deep Clean Workspace and Caches
-      run: |
-        git clean -fdx
-        rm -rf ~/Library/Caches/org.swift.swiftpm/
-        rm -rf ~/Library/Developer/Xcode/DerivedData/
-
     - name: Install XcodeGen
       run: brew install xcodegen
 
@@ -35,12 +29,12 @@ jobs:
           -scheme FanController
 
     - name: Build and Archive iOS App
-      # ИСПРАВЛЕНО: Добавлен флаг -sdk iphoneos для обхода ошибки отсутствия iOS 18
+      # ИСПРАВЛЕНО: Изменен синтаксис назначения на универсальное имя устройства для обхода проверки iOS 18
       run: |
         xcodebuild archive \
           -project FanController.xcodeproj \
           -scheme FanController \
-          -destination "generic/platform=iOS" \
+          -destination "name=Any iOS Device" \
           -sdk iphoneos \
           -archivePath build/FanController.xcarchive \
           CODE_SIGNING_ALLOWED=NO \
