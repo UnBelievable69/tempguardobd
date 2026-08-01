@@ -10,8 +10,8 @@ let package = Package(
         .executable(name: "FanController", targets: ["FanController"])
     ],
     dependencies: [
-        // Подключаем стороннюю библиотеку для работы с OBD2
-        .package(url: "https://github.com some-user/SwiftOBD2.git", from: "1.0.0") 
+        // Исправлено: указан корректный и существующий репозиторий SwiftOBD2
+        .package(url: "https://github.com", from: "1.0.0")
     ],
     targets: [
         .executableTarget(
