@@ -16,43 +16,37 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
-    # НОВЫЙ ШАГ: Проверяем, что реально лежит внутри файла в облаке
-    - name: Debug Print Package.swift
-      run: |
-        echo "=== СОДЕРЖИМОЕ PACKAGE.SWIFT ==="
-        cat Package.swift
-        echo "================================"
+    # Устанавливаем официальный генератор проектов от Apple-сообщества
+    - name: Install XcodeGen
+      run: brew install xcodegen
 
-    - name: Hard Clean SPM Cache
-      run: |
-        rm -rf .build/
-        rm -f Package.resolved
-        rm -rf ~/Library/Caches/org.swift.swiftpm/
+    # Генерируем правильный .xcodeproj файл на основе project.yml
+    - name: Generate Xcode Project
+      run: xcodegen generate
 
-    # Передаем явный флаг отключения сетевого кэша самого гитхаба
-    - name: Resolve Dependencies
-      run: swift package --disable-sandbox resolve
-
-    - name: Build iOS Application
+    # Собираем полноценный архив приложения
+    - name: Build and Archive iOS App
       run: |
-        xcodebuild build \
-          -packagepath . \
+        xcodebuild archive \
+          -project FanController.xcodeproj \
           -scheme FanController \
           -destination "generic/platform=iOS" \
+          -archivePath build/FanController.xcarchive \
           CODE_SIGNING_ALLOWED=NO \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGN_IDENTITY="" \
-          PROVISIONING_PROFILE_SPECIFIER="" \
-          BUILD_DIR="build" \
-          -configuration Release
+          PROVISIONING_PROFILE_SPECIFIER=""
 
+    # Упаковываем полученный результат в .ipa
     - name: Package App Binary into IPA
       run: |
         mkdir -p build/Payload
-        find build -name "FanController.app" -type d -exec cp -r {} build/Payload/ \;
+        cp -r build/FanController.xcarchive/Products/Applications/FanController.app build/Payload/
         cd build
         zip -r FanController.ipa Payload
+        echo "IPA File successfully created!"
 
+    # Выгружаем готовый артефакт
     - name: Upload Finished IPA Artifact
       uses: actions/upload-artifact@v4
       with:
