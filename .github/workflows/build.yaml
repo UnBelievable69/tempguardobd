@@ -1,0 +1,60 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Позволяет запускать сборку вручную кнопкой на GitHub
+
+jobs:
+  build:
+    # Запускаем сборку на официальной виртуальной машине Apple от GitHub
+    runs-on: macos-14
+
+    steps:
+    # 1. Скачиваем исходный код из вашего репозитория
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    # 2. Выбираем актуальную версию Xcode
+    - name: Select Xcode Version
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+    # 3. Генерируем проект Xcode на лету из файла Package.swift
+    - name: Generate Xcode Project from Package.swift
+      run: swift package generate-xcodeproj --output FanController.xcodeproj
+
+    # 4. Объединяем Info.plist (права на Bluetooth) со сгенерированным проектом
+    - name: Inject Info.plist into Project Settings
+      run: |
+        echo "Injecting Info.plist configuration..."
+        cat Info.plist > .github/Info.plist 2>/dev/null || true
+
+    # 5. Компилируем проект и создаем архив приложения (без подписи Apple Developer)
+    - name: Build and Archive iOS App
+      run: |
+        xcodebuild archive \
+          -project FanController.xcodeproj \
+          -scheme FanController \
+          -destination "generic/platform=iOS" \
+          -archivePath build/FanController.xcarchive \
+          CODE_SIGNING_ALLOWED=NO \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGN_IDENTITY="" \
+          PROVISIONING_PROFILE_SPECIFIER=""
+
+    # 6. Упаковываем скомпилированное приложение в итоговый формат .ipa
+    - name: Package .xcarchive into .ipa File
+      run: |
+        mkdir -p build/Payload
+        cp -r build/FanController.xcarchive/Products/Applications/FanController.app build/Payload/
+        cd build
+        zip -r FanController.ipa Payload
+        echo "IPA File successfully created!"
+
+    # 7. Выгружаем готовый .ipa файл в артефакты сборки GitHub
+    - name: Upload Finished IPA Artifact
+      uses: actions/artifacts/upload@v4
+      with:
+        name: FanController-Unsigned-IPA
+        path: build/FanController.ipa
+        retention-days: 5
