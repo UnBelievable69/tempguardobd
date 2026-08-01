@@ -11,7 +11,6 @@ struct ContentView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top)
             
-            // Индикатор температуры
             VStack {
                 Text("\(Int(obdManager.currentTemperature))°C")
                     .font(.system(size: 74, weight: .bold, design: .rounded))
@@ -22,7 +21,6 @@ struct ContentView: View {
             }
             .padding()
             
-            // Статус вентилятора
             HStack {
                 Circle()
                     .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
@@ -34,7 +32,6 @@ struct ContentView: View {
             .background(Color(.systemGray6))
             .cornerRadius(12)
             
-            // Кнопка подключения
             Button(action: {
                 obdManager.startConnection()
             }) {
@@ -49,7 +46,6 @@ struct ContentView: View {
             .disabled(obdManager.connectionStatus.contains("Подключено"))
             .padding(.horizontal)
             
-            // Текстовый статус
             Text(obdManager.connectionStatus)
                 .font(.footnote)
                 .foregroundColor(.secondary)
@@ -61,7 +57,6 @@ struct ContentView: View {
         .padding()
     }
     
-    // Динамический цвет температуры для наглядности
     private var temperatureColor: Color {
         if obdManager.currentTemperature >= 98 { return .red }
         if obdManager.currentTemperature >= 90 { return .orange }
