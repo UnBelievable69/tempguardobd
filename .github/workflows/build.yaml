@@ -16,11 +16,18 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
-    # 1. Загружаем и проверяем зависимости без промежуточного xcodeproj
+    # Принудительно вычищаем любые сломанные кэши и файлы прошлых сборок
+    - name: Hard Clean SPM Cache
+      run: |
+        echo "Cleaning old caches..."
+        rm -rf .build/
+        rm -f Package.resolved
+        rm -rf ~/Library/Caches/org.swift.swiftpm/
+        rm -rf ~/Library/Developer/Xcode/DerivedData/
+
     - name: Resolve Dependencies
       run: swift package resolve
 
-    # 2. Собираем приложение напрямую из Package.swift для физического устройства iOS
     - name: Build iOS Application
       run: |
         xcodebuild build \
@@ -34,17 +41,14 @@ jobs:
           BUILD_DIR="build" \
           -configuration Release
 
-    # 3. Упаковываем полученный .app бинарник в формат .ipa
     - name: Package App Binary into IPA
       run: |
         mkdir -p build/Payload
-        # Находим скомпилированное приложение в директории сборки и копируем в Payload
         find build -name "FanController.app" -type d -exec cp -r {} build/Payload/ \;
         cd build
         zip -r FanController.ipa Payload
         echo "IPA File successfully created!"
 
-    # 4. Выгружаем готовый .ipa файл в артефакты сборки
     - name: Upload Finished IPA Artifact
       uses: actions/upload-artifact@v4
       with:
