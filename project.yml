@@ -1,7 +1,7 @@
 name: FanController
 options:
   bundleIdPrefix: com.example
-  xcodeVersion: "15.0" # ИСПРАВЛЕНО: Явно задаем формат проекта для Xcode 15+
+  xcodeVersion: "16.0"
 targets:
   FanController:
     type: application
