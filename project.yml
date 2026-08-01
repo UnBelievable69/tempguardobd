@@ -1,0 +1,27 @@
+name: FanController
+options:
+  bundleIdPrefix: com.example
+targets:
+  FanController:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Sources
+    info:
+      path: Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Приложению требуется доступ к Bluetooth для подключения к диагностическому адаптеру ELM327 и управления вентилятором."
+        NSBluetoothPeripheralUsageDescription: "Приложению требуется доступ к Bluetooth для работы с OBD2 сканером."
+    dependencies:
+      - package: SwiftOBD2
+    settings:
+      CODE_SIGNING_ALLOWED: NO
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGN_IDENTITY: ""
+      PROVISIONING_PROFILE_SPECIFIER: ""
+
+packages:
+  SwiftOBD2:
+    url: https://github.com
+    branch: main
