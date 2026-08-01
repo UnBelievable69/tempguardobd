@@ -3,33 +3,37 @@ import SwiftOBD2
 import Combine
 
 class OBDManager: ObservableObject {
-    private var obd2Service = OBD2Service()
+    // В соответствии с документацией класс называется OBDService
+    private var obdService = OBDService(connectionType: .bluetooth)
     private var timer: Timer?
     
     // НАСТРОЙКИ ПОРОГОВ И КОМАНД
     private let tempToTurnOn: Double = 98.0   // Включение при 98°C
     private let tempToTurnOff: Double = 90.0  // Выключение при 90°C
     
-    private let fanOnCommand = "2F000A06FF"   // Ваша команда принудительного включения
-    private let fanOffCommand = "2F000A00"    // Команда возврата контроля ECU (выключение теста)
+    private let fanOnCommand = "2F000A06FF"   // Команда принудительного включения
+    private let fanOffCommand = "2F000A00"    // Команда возврата контроля ECU
     
-    // Флаг текущего состояния вентилятора, чтобы не спамить командами в шину
     @Published var isFanCurrentlyOn = false
     @Published var connectionStatus = "Отключено"
     @Published var currentTemperature: Double = 0.0
 
-    // 1. Запуск подключения
+    // 1. Запуск подключения через современный async/await API библиотеки
     func startConnection() {
         connectionStatus = "Поиск адаптера..."
         
-        obd2Service.startConnection(connectionType: .bluetooth) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self?.connectionStatus = "Подключено. Мониторинг..."
-                    self?.startTemperatureMonitoring()
-                case .failure(let error):
-                    self?.connectionStatus = "Ошибка BLE: \(error.localizedDescription)"
+        Task {
+            do {
+                // Подключение согласно официальной документации SwiftOBD2
+                let _ = try await obdService.startConnection()
+                
+                await MainActor.run {
+                    self.connectionStatus = "Подключено. Мониторинг..."
+                    self.startTemperatureMonitoring()
+                }
+            } catch {
+                await MainActor.run {
+                    self.connectionStatus = "Ошибка подключения: \(error.localizedDescription)"
                 }
             }
         }
@@ -40,19 +44,21 @@ class OBDManager: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             
-            let coolantPid = Command.Mode1.coolantTemperature
-            
-            self.obd2Service.sendOverOBD(coolantPid) { result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .success(let obdResponse):
-                        if let temp = obdResponse.value as? Double {
+            // Используем стандартный асинхронный вызов чтения PID температуры охлаждающей жидкости
+            Task {
+                do {
+                    // Запрос Mode 1 PID 05 (Coolant Temperature)
+                    let coolantCommand = OBDCommand.Mode1.coolantTemperature
+                    let response = try await self.obdService.sendCommand(coolantCommand)
+                    
+                    await MainActor.run {
+                        if let temp = response.value as? Double {
                             self.currentTemperature = temp
                             self.evaluateFanLogic(temperature: temp)
                         }
-                    case .failure(let error):
-                        print("Ошибка чтения PID 05: \(error)")
                     }
+                } catch {
+                    print("Ошибка чтения температуры: \(error.localizedDescription)")
                 }
             }
         }
@@ -60,11 +66,9 @@ class OBDManager: ObservableObject {
 
     // 3. Логика автоматического управления (Гистерезис)
     private func evaluateFanLogic(temperature: Double) {
-        // Условие включения
         if temperature >= tempToTurnOn && !isFanCurrentlyOn {
             executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
         } 
-        // Условие выключения
         else if temperature <= tempToTurnOff && isFanCurrentlyOn {
             executeCommand(fanOffCommand, targetState: false, statusText: "Отключение вентилятора...")
         }
@@ -74,15 +78,20 @@ class OBDManager: ObservableObject {
     private func executeCommand(_ hexCommand: String, targetState: Bool, statusText: String) {
         connectionStatus = statusText
         
-        obd2Service.sendRawCommand(hexCommand) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let response):
-                    print("Ответ ЭБУ на \(hexCommand): \(response)")
-                    self?.isFanCurrentlyOn = targetState
-                    self?.connectionStatus = targetState ? "Вентилятор работает (98°C+)" : "Вентилятор отключен (<=90°C)"
-                case .failure(let error):
-                    self?.connectionStatus = "Сбой команды: \(error.localizedDescription)"
+        Task {
+            do {
+                // Отправка кастомной диагностической команды UDS / OBD2
+                let customCommand = OBDCommand(rawString: hexCommand)
+                let response = try await obdService.sendCommand(customCommand)
+                
+                await MainActor.run {
+                    print("Ответ ЭБУ на \(hexCommand): \(response.rawValue)")
+                    self.isFanCurrentlyOn = targetState
+                    self.connectionStatus = targetState ? "Вентилятор работает (98°C+)" : "Вентилятор отключен (<=90°C)"
+                }
+            } catch {
+                await MainActor.run {
+                    self.connectionStatus = "Сбой команды: \(error.localizedDescription)"
                 }
             }
         }
@@ -90,6 +99,6 @@ class OBDManager: ObservableObject {
     
     deinit {
         timer?.invalidate()
-        obd2Service.stopConnection()
+        obdService.stopConnection()
     }
 }
