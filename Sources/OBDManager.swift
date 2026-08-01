@@ -3,7 +3,7 @@ import SwiftOBD2
 import Combine
 
 class OBDManager: ObservableObject {
-    // В соответствии с документацией класс называется OBDService
+    // Согласно актуальной документации класс называется OBDService
     private var obdService = OBDService(connectionType: .bluetooth)
     private var timer: Timer?
     
@@ -11,20 +11,20 @@ class OBDManager: ObservableObject {
     private let tempToTurnOn: Double = 98.0   // Включение при 98°C
     private let tempToTurnOff: Double = 90.0  // Выключение при 90°C
     
-    private let fanOnCommand = "2F000A06FF"   // Команда принудительного включения
+    private let fanOnCommand = "2F000A06FF"   // Ваша команда принудительного включения
     private let fanOffCommand = "2F000A00"    // Команда возврата контроля ECU
     
     @Published var isFanCurrentlyOn = false
     @Published var connectionStatus = "Отключено"
     @Published var currentTemperature: Double = 0.0
 
-    // 1. Запуск подключения через современный async/await API библиотеки
+    // 1. Запуск подключения через современный async/await API
     func startConnection() {
         connectionStatus = "Поиск адаптера..."
         
         Task {
             do {
-                // Подключение согласно официальной документации SwiftOBD2
+                // Подключение согласно актуальному синтаксису библиотеки
                 let _ = try await obdService.startConnection()
                 
                 await MainActor.run {
@@ -44,10 +44,9 @@ class OBDManager: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             
-            // Используем стандартный асинхронный вызов чтения PID температуры охлаждающей жидкости
             Task {
                 do {
-                    // Запрос Mode 1 PID 05 (Coolant Temperature)
+                    // Запрос стандартного Mode 1 PID температуры охлаждающей жидкости
                     let coolantCommand = OBDCommand.Mode1.coolantTemperature
                     let response = try await self.obdService.sendCommand(coolantCommand)
                     
@@ -80,7 +79,7 @@ class OBDManager: ObservableObject {
         
         Task {
             do {
-                // Отправка кастомной диагностической команды UDS / OBD2
+                // Отправка кастомного диагностического HEX-запроса
                 let customCommand = OBDCommand(rawString: hexCommand)
                 let response = try await obdService.sendCommand(customCommand)
                 
