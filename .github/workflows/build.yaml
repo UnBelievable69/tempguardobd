@@ -16,35 +16,35 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
-    - name: Generate Xcode Project from Package.swift
-      run: swift package generate-xcodeproj --output FanController.xcodeproj
+    # 1. Загружаем и проверяем зависимости без промежуточного xcodeproj
+    - name: Resolve Dependencies
+      run: swift package resolve
 
-    - name: Inject Info.plist into Project Settings
+    # 2. Собираем приложение напрямую из Package.swift для физического устройства iOS
+    - name: Build iOS Application
       run: |
-        echo "Injecting Info.plist configuration..."
-        cat Info.plist > .github/Info.plist 2>/dev/null || true
-
-    - name: Build and Archive iOS App
-      run: |
-        xcodebuild archive \
-          -project FanController.xcodeproj \
+        xcodebuild build \
+          -packagepath . \
           -scheme FanController \
           -destination "generic/platform=iOS" \
-          -archivePath build/FanController.xcarchive \
           CODE_SIGNING_ALLOWED=NO \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGN_IDENTITY="" \
-          PROVISIONING_PROFILE_SPECIFIER=""
+          PROVISIONING_PROFILE_SPECIFIER="" \
+          BUILD_DIR="build" \
+          -configuration Release
 
-    - name: Package .xcarchive into .ipa File
+    # 3. Упаковываем полученный .app бинарник в формат .ipa
+    - name: Package App Binary into IPA
       run: |
         mkdir -p build/Payload
-        cp -r build/FanController.xcarchive/Products/Applications/FanController.app build/Payload/
+        # Находим скомпилированное приложение в директории сборки и копируем в Payload
+        find build -name "FanController.app" -type d -exec cp -r {} build/Payload/ \;
         cd build
         zip -r FanController.ipa Payload
         echo "IPA File successfully created!"
 
-    # ИСПРАВЛЕНО: Правильный экшен для выгрузки готового файла
+    # 4. Выгружаем готовый .ipa файл в артефакты сборки
     - name: Upload Finished IPA Artifact
       uses: actions/upload-artifact@v4
       with:
