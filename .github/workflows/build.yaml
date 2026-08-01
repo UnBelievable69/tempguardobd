@@ -7,33 +7,41 @@ on:
 
 jobs:
   build:
-    # Переключаемся на macOS 15, где Xcode 16 является стандартом
     runs-on: macos-15
 
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
 
-    # Выбираем стабильный Xcode 16.0
     - name: Select Xcode Version
-      run: sudo xcode-select -s /Applications/Xcode_16.0.app
+      run: sudo xcode-select -s /Applications/Xcode_16.app
+
+    - name: Deep Clean Workspace and Caches
+      run: |
+        git clean -fdx
+        rm -rf ~/Library/Caches/org.swift.swiftpm/
+        rm -rf ~/Library/Developer/Xcode/DerivedData/
 
     - name: Install XcodeGen
       run: brew install xcodegen
 
-    # Принудительно удаляем старый проект перед генерацией нового
-    - name: Clean Old Project Files
-      run: rm -rf FanController.xcodeproj
-
     - name: Generate Xcode Project
       run: xcodegen generate
 
+    - name: Resolve Package Dependencies
+      run: |
+        xcodebuild -resolvePackageDependencies \
+          -project FanController.xcodeproj \
+          -scheme FanController
+
     - name: Build and Archive iOS App
+      # ИСПРАВЛЕНО: Добавлен флаг -sdk iphoneos для обхода ошибки отсутствия iOS 18
       run: |
         xcodebuild archive \
           -project FanController.xcodeproj \
           -scheme FanController \
           -destination "generic/platform=iOS" \
+          -sdk iphoneos \
           -archivePath build/FanController.xcarchive \
           CODE_SIGNING_ALLOWED=NO \
           CODE_SIGNING_REQUIRED=NO \
@@ -48,7 +56,6 @@ jobs:
         zip -r FanController.ipa Payload
         echo "IPA File successfully created!"
 
-    # Выгрузка артефакта
     - name: Upload Finished IPA Artifact
       uses: actions/upload-artifact@v4
       with:
