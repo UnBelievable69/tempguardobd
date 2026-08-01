@@ -7,24 +7,27 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # Переключаемся на macOS 15, где Xcode 16 является стандартом
+    runs-on: macos-15
 
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
 
+    # Выбираем стабильный Xcode 16.0
     - name: Select Xcode Version
-      run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
-    # Устанавливаем официальный генератор проектов от Apple-сообщества
     - name: Install XcodeGen
       run: brew install xcodegen
 
-    # Генерируем правильный .xcodeproj файл на основе project.yml
+    # Принудительно удаляем старый проект перед генерацией нового
+    - name: Clean Old Project Files
+      run: rm -rf FanController.xcodeproj
+
     - name: Generate Xcode Project
       run: xcodegen generate
 
-    # Собираем полноценный архив приложения
     - name: Build and Archive iOS App
       run: |
         xcodebuild archive \
@@ -37,7 +40,6 @@ jobs:
           CODE_SIGN_IDENTITY="" \
           PROVISIONING_PROFILE_SPECIFIER=""
 
-    # Упаковываем полученный результат в .ipa
     - name: Package App Binary into IPA
       run: |
         mkdir -p build/Payload
@@ -46,7 +48,7 @@ jobs:
         zip -r FanController.ipa Payload
         echo "IPA File successfully created!"
 
-    # Выгружаем готовый артефакт
+    # Выгрузка артефакта
     - name: Upload Finished IPA Artifact
       uses: actions/upload-artifact@v4
       with:
