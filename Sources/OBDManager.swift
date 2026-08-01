@@ -1,29 +1,42 @@
 import Foundation
 import SwiftOBD2
 import Combine
+import CoreBluetooth
 
 class OBDManager: ObservableObject {
-    private var obdService = OBDService(connectionType: .bluetooth)
+
+    // FIX: OBDService создаётся ЛЕНИВО, а не при инициализации.
+    // Было: private var obdService = OBDService(connectionType: .bluetooth)
+    // Это вызывало CBCentralManager() до запроса разрешения Bluetooth → краш.
+    private var obdService: OBDService?
+
     private var timer: Timer?
 
     // НАСТРОЙКИ ПОРОГОВ И КОМАНД
-    private let tempToTurnOn: Double = 98.0   // Включение при 98°C
-    private let tempToTurnOff: Double = 90.0  // Выключение при 90°C
+    private let tempToTurnOn: Double = 98.0
+    private let tempToTurnOff: Double = 90.0
 
-    private let fanOnCommand  = "2F000A06FF"  // Команда принудительного включения
-    private let fanOffCommand = "2F000A00"    // Команда возврата контроля ECU
+    private let fanOnCommand  = "2F000A06FF"
+    private let fanOffCommand = "2F000A00"
 
     @Published var isFanCurrentlyOn = false
     @Published var connectionStatus = "Отключено"
     @Published var currentTemperature: Double = 0.0
 
-    // 1. Запуск подключения через async/await API
+    // MARK: - Подключение
+
     func startConnection() {
         connectionStatus = "Поиск адаптера..."
 
         Task {
             do {
-                let _ = try await obdService.startConnection()
+                // FIX: создаём OBDService ЗДЕСЬ, когда пользователь нажал кнопку,
+                // а не при инициализации View. К этому моменту UI уже загружен
+                // и iOS может корректно показать диалог разрешения Bluetooth.
+                let service = OBDService(connectionType: .bluetooth)
+                self.obdService = service
+
+                let _ = try await service.startConnection()
 
                 await MainActor.run {
                     self.connectionStatus = "Подключено. Мониторинг..."
@@ -31,32 +44,27 @@ class OBDManager: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    // FIX: добавлен \ для интерполяции строки
                     self.connectionStatus = "Ошибка подключения: \(error.localizedDescription)"
+                    self.obdService = nil
                 }
             }
         }
     }
 
-    // 2. Опрос датчика каждые 2 секунды
+    // MARK: - Мониторинг температуры
+
     private func startTemperatureMonitoring() {
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+            guard let self = self, let service = self.obdService else { return }
 
             Task {
                 do {
-                    // FIX: правильный путь к enum — OBDCommand.mode1(.coolantTemp)
-                    // Было: OBDCommand.Mode1.coolantTemperature (не существует)
                     let coolantCommand: OBDCommand = .mode1(.coolantTemp)
-
-                    // FIX: sendCommand() возвращает Result<DecodeResult>,
-                    // а не объект с .value. Нужно pattern-match.
-                    let result = try await self.obdService.sendCommand(coolantCommand)
+                    let result = try await service.sendCommand(coolantCommand)
 
                     await MainActor.run {
                         switch result {
                         case .success(let decodeResult):
-                            // FIX: DecodeResult — enum, извлекаем .measurementResult
                             if case .measurementResult(let measurement) = decodeResult {
                                 self.currentTemperature = measurement.value
                                 self.evaluateFanLogic(temperature: measurement.value)
@@ -66,14 +74,14 @@ class OBDManager: ObservableObject {
                         }
                     }
                 } catch {
-                    // FIX: добавлен \ для интерполяции строки
                     print("Ошибка чтения температуры: \(error.localizedDescription)")
                 }
             }
         }
     }
 
-    // 3. Логика автоматического управления (Гистерезис)
+    // MARK: - Логика управления вентилятором
+
     private func evaluateFanLogic(temperature: Double) {
         if temperature >= tempToTurnOn && !isFanCurrentlyOn {
             executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
@@ -83,22 +91,26 @@ class OBDManager: ObservableObject {
         }
     }
 
-    // 4. Отправка сырого HEX-запроса в авто
+    // MARK: - Отправка сырой HEX-команды
+
     private func executeCommand(_ hexCommand: String, targetState: Bool, statusText: String) {
         connectionStatus = statusText
 
         Task {
+            guard let service = self.obdService else {
+                await MainActor.run {
+                    self.connectionStatus = "Ошибка: сервис не инициализирован"
+                }
+                return
+            }
+
             do {
-                // FIX: OBDCommand(rawString:) НЕ СУЩЕСТВУЕТ.
-                // Для отправки произвольной HEX-команды используем sendCommandInternal(),
-                // который возвращает [String] — массив сырых строк ответа.
-                let responseLines: [String] = try await obdService.sendCommandInternal(
+                let responseLines: [String] = try await service.sendCommandInternal(
                     hexCommand,
                     retries: 3
                 )
 
                 await MainActor.run {
-                    // FIX: responseLines — это [String], а не объект с .rawValue
                     print("Ответ ЭБУ на \(hexCommand): \(responseLines.joined(separator: " "))")
                     self.isFanCurrentlyOn = targetState
                     self.connectionStatus = targetState
@@ -107,15 +119,25 @@ class OBDManager: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    // FIX: добавлен \ для интерполяции строки
                     self.connectionStatus = "Сбой команды: \(error.localizedDescription)"
                 }
             }
         }
     }
 
+    // MARK: - Остановка
+
+    func stopConnection() {
+        timer?.invalidate()
+        timer = nil
+        obdService?.stopConnection()
+        obdService = nil
+        connectionStatus = "Отключено"
+        isFanCurrentlyOn = false
+    }
+
     deinit {
         timer?.invalidate()
-        obdService.stopConnection()
+        obdService?.stopConnection()
     }
 }
