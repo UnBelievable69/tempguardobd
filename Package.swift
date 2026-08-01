@@ -3,14 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "FanController",
-    platforms: [
-        .iOS(.v15)
-    ],
-    products: [
-        .executable(name: "FanController", targets: ["FanController"])
-    ],
+    platforms: [.iOS(.v15)],
+    products: [.executable(name: "FanController", targets: ["FanController"])],
     dependencies: [
-        // Исправлено: указан корректный и существующий репозиторий SwiftOBD2
         .package(url: "https://github.com", from: "1.0.0")
     ],
     targets: [
