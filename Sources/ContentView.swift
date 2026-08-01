@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var obdManager = OBDManager()
-    
+
     var body: some View {
         VStack(spacing: 30) {
             Text("OBD2 Контроллер Вентилятора")
@@ -10,8 +10,9 @@ struct ContentView: View {
                 .bold()
                 .multilineTextAlignment(.center)
                 .padding(.top)
-            
+
             VStack {
+                // FIX: добавлен \ для интерполяции — было "(Int(...))°C"
                 Text("\(Int(obdManager.currentTemperature))°C")
                     .font(.system(size: 74, weight: .bold, design: .rounded))
                     .foregroundColor(temperatureColor)
@@ -20,7 +21,7 @@ struct ContentView: View {
                     .foregroundColor(.gray)
             }
             .padding()
-            
+
             HStack {
                 Circle()
                     .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
@@ -31,7 +32,7 @@ struct ContentView: View {
             .padding()
             .background(Color(.systemGray6))
             .cornerRadius(12)
-            
+
             Button(action: {
                 obdManager.startConnection()
             }) {
@@ -45,18 +46,18 @@ struct ContentView: View {
             }
             .disabled(obdManager.connectionStatus.contains("Подключено"))
             .padding(.horizontal)
-            
+
             Text(obdManager.connectionStatus)
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            
+
             Spacer()
         }
         .padding()
     }
-    
+
     private var temperatureColor: Color {
         if obdManager.currentTemperature >= 98 { return .red }
         if obdManager.currentTemperature >= 90 { return .orange }
