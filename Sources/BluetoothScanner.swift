@@ -65,6 +65,7 @@ enum SignalStrength {
 final class BluetoothScanner: NSObject, ObservableObject {
 
     private var centralManager: CBCentralManager!
+    private var scanGeneration = 0
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var isScanning = false
@@ -79,6 +80,14 @@ final class BluetoothScanner: NSObject, ObservableObject {
         guard centralManager.state == .poweredOn else { return }
         discoveredDevices.removeAll()
         isScanning = true
+        scanGeneration += 1
+        let gen = scanGeneration
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self = self, self.scanGeneration == gen else { return }
+            self.stopScanning()
+        }
+
         centralManager.scanForPeripherals(
             withServices: nil,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
@@ -86,6 +95,7 @@ final class BluetoothScanner: NSObject, ObservableObject {
     }
 
     func stopScanning() {
+        scanGeneration += 1
         if centralManager.isScanning {
             centralManager.stopScan()
         }
