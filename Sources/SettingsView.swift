@@ -3,12 +3,51 @@ import SwiftUI
 struct SettingsView: View {
 
     @ObservedObject var settings: SettingsManager
+    @ObservedObject var obdManager: OBDManager
+    @State private var showScanner = false
 
     var body: some View {
         NavigationView {
             Form {
 
-                // MARK: - Порог включения
+                Section {
+                    Button(action: { showScanner = true }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.title3)
+                                .foregroundColor(.blue)
+                                .frame(width: 32)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Адаптер")
+                                    .font(.body)
+                                    .foregroundColor(.primary)
+                                Text(settings.hasSelectedDevice
+                                     ? settings.selectedDeviceName
+                                     : "Нажмите для поиска")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer()
+
+                            if settings.hasSelectedDevice {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(Color(.systemGray3))
+                        }
+                    }
+                } header: {
+                    Text("Подключение")
+                } footer: {
+                    Text("Нажмите для поиска и выбора Bluetooth адаптера ELM327.")
+                }
+
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -26,13 +65,13 @@ struct SettingsView: View {
 
                         Slider(
                             value: $settings.tempTurnOn,
-                            in: SettingsManager.minTemp...SettingsManager.maxTemp,
+                            in: (SettingsManager.minTemp + SettingsManager.minGap)...SettingsManager.maxTemp,
                             step: 1.0
                         )
                         .tint(.red)
 
                         HStack {
-                            Text("\(Int(SettingsManager.minTemp))°")
+                            Text("\(Int(SettingsManager.minTemp + SettingsManager.minGap))°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Spacer()
@@ -48,7 +87,6 @@ struct SettingsView: View {
                     Text("Вентилятор включится когда температура ОЖ достигнет этого значения.")
                 }
 
-                // MARK: - Порог выключения
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -66,7 +104,7 @@ struct SettingsView: View {
 
                         Slider(
                             value: $settings.tempTurnOff,
-                            in: SettingsManager.minTemp...SettingsManager.maxTemp,
+                            in: SettingsManager.minTemp...(SettingsManager.maxTemp - SettingsManager.minGap),
                             step: 1.0
                         )
                         .tint(.green)
@@ -76,7 +114,7 @@ struct SettingsView: View {
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Spacer()
-                            Text("\(Int(SettingsManager.maxTemp))°")
+                            Text("\(Int(SettingsManager.maxTemp - SettingsManager.minGap))°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
@@ -88,7 +126,6 @@ struct SettingsView: View {
                     Text("Вентилятор выключится когда температура опустится до этого значения. Всегда ниже порога включения.")
                 }
 
-                // MARK: - Гистерезис
                 Section {
                     HStack {
                         Image(systemName: "arrow.up.arrow.down")
@@ -101,7 +138,6 @@ struct SettingsView: View {
                             .monospacedDigit()
                     }
 
-                    // Визуальная шкала
                     HysteresisBar(
                         tempOff: settings.tempTurnOff,
                         tempOn: settings.tempTurnOn,
@@ -117,7 +153,6 @@ struct SettingsView: View {
                     Text("Минимальный зазор: \(Int(SettingsManager.minGap))°C. Предотвращает частое включение/выключение вентилятора.")
                 }
 
-                // MARK: - Сброс
                 Section {
                     Button(role: .destructive) {
                         withAnimation {
@@ -127,13 +162,27 @@ struct SettingsView: View {
                         HStack {
                             Spacer()
                             Image(systemName: "arrow.counterclockwise")
-                            Text("Сбросить по умолчанию (98° / 90°)")
+                            Text("Сбросить пороги (98° / 90°)")
                             Spacer()
+                        }
+                    }
+
+                    if settings.hasSelectedDevice {
+                        Button(role: .destructive) {
+                            withAnimation {
+                                settings.clearSelectedDevice()
+                            }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "xmark.circle")
+                                Text("Забыть адаптер")
+                                Spacer()
+                            }
                         }
                     }
                 }
 
-                // MARK: - Информация
                 Section {
                     HStack {
                         Text("Версия")
@@ -142,9 +191,9 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     HStack {
-                        Text("Адаптер")
+                        Text("Протокол")
                         Spacer()
-                        Text("ELM327 Bluetooth")
+                        Text("ELM327 Bluetooth LE")
                             .foregroundColor(.secondary)
                     }
                 } header: {
@@ -153,12 +202,15 @@ struct SettingsView: View {
             }
             .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.large)
+            .sheet(isPresented: $showScanner) {
+                BluetoothScannerView(settings: settings) {
+                    obdManager.startConnection()
+                }
+            }
         }
         .navigationViewStyle(.stack)
     }
 }
-
-// MARK: - Визуальная шкала гистерезиса
 
 struct HysteresisBar: View {
     let tempOff: Double
@@ -168,18 +220,16 @@ struct HysteresisBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            let totalRange = maxTemp - minTemp
+            let totalRange  = maxTemp - minTemp
             let offFraction = (tempOff - minTemp) / totalRange
             let onFraction  = (tempOn  - minTemp) / totalRange
 
             ZStack(alignment: .leading) {
 
-                // Фон
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color(.systemGray5))
                     .frame(height: 12)
 
-                // Зона между порогами (гистерезис)
                 RoundedRectangle(cornerRadius: 6)
                     .fill(
                         LinearGradient(
@@ -194,7 +244,6 @@ struct HysteresisBar: View {
                     )
                     .offset(x: geo.size.width * offFraction)
 
-                // Маркер выключения
                 Circle()
                     .fill(Color.green)
                     .frame(width: 18, height: 18)
@@ -205,7 +254,6 @@ struct HysteresisBar: View {
                     )
                     .offset(x: geo.size.width * offFraction - 9)
 
-                // Маркер включения
                 Circle()
                     .fill(Color.red)
                     .frame(width: 18, height: 18)
@@ -218,13 +266,5 @@ struct HysteresisBar: View {
             }
             .frame(maxHeight: .infinity, alignment: .center)
         }
-    }
-}
-
-// MARK: - Preview
-
-struct SettingsView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsView(settings: SettingsManager())
     }
 }
