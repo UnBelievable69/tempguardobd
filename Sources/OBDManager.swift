@@ -30,6 +30,7 @@ final class OBDManager: NSObject, ObservableObject {
     @Published var currentTemperature: Double = 0.0
     @Published var showError = false
     @Published var errorMessage = ""
+    @Published var isMonitoring = false
 
     init(settings: SettingsManager) {
         self.settings = settings
@@ -40,6 +41,7 @@ final class OBDManager: NSObject, ObservableObject {
         Task { @MainActor in
             monitoringTask?.cancel()
             isConnected = false
+            isMonitoring = false
             responseBuffer = ""
 
             guard !settings.selectedDeviceUUID.isEmpty,
@@ -102,6 +104,7 @@ final class OBDManager: NSObject, ObservableObject {
             let _ = await sendCommand("0100")
 
             connectionStatus = "Подключено. Мониторинг..."
+            isMonitoring = true
             startTemperatureMonitoring()
         }
     }
@@ -195,6 +198,7 @@ final class OBDManager: NSObject, ObservableObject {
         writeChar = nil
         notifyChar = nil
         isConnected = false
+        isMonitoring = false
         connectionStatus = "Отключено"
         isFanCurrentlyOn = false
         currentTemperature = 0.0
@@ -220,6 +224,8 @@ extension OBDManager: CBCentralManagerDelegate {
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
         isConnected = false
+        isMonitoring = false
+        monitoringTask?.cancel()
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
     }
 }
