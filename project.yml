@@ -2,8 +2,6 @@ name: FanController
 
 options:
   bundleIdPrefix: com.example
-  # REMOVED: xcodeVersion: "16.0"
-  # Let XcodeGen use whatever Xcode is active on the runner.
 
 targets:
   FanController:
@@ -15,7 +13,19 @@ targets:
     info:
       path: Info.plist
       properties:
+        # ===== КРИТИЧЕСКИ ВАЖНО — без этого iOS убивает приложение при запуске =====
         UILaunchScreen: {}
+
+        # ===== КРИТИЧЕСКИ ВАЖНО — BLEManager использует State Restoration =====
+        # Без этого iOS убивает приложение при создании CBCentralManager
+        UIBackgroundModes:
+          - bluetooth-central
+
+        # ===== Bluetooth разрешения (ОБА ключа обязательны) =====
+        NSBluetoothAlwaysUsageDescription: "Приложению требуется доступ к Bluetooth для подключения к диагностическому адаптеру ELM327 и управления вентилятором."
+        NSBluetoothPeripheralUsageDescription: "Приложению требуется доступ к Bluetooth для работы с OBD2 сканером."
+
+        # ===== Обязательные ключи =====
         CFBundleDisplayName: FanController
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
@@ -25,8 +35,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIApplicationSupportsIndirectInputEvents: true
-        NSBluetoothAlwaysUsageDescription: "Приложению требуется доступ к Bluetooth для подключения к диагностическому адаптеру ELM327 и управления вентилятором."
-        NSBluetoothPeripheralUsageDescription: "Приложению требуется доступ к Bluetooth для работы с OBD2 сканером."
+
     dependencies:
       - package: SwiftOBD2
     settings:
