@@ -3,11 +3,10 @@ import SwiftOBD2
 import Combine
 import CoreBluetooth
 
-@MainActor
 final class OBDManager: ObservableObject {
 
     private var obdService: OBDService?
-    private var timer: Timer?
+    private var monitoringTask: Task<Void, Never>?
     private let settings: SettingsManager
 
     private let fanOnCommand  = "2F000A06FF"
@@ -24,9 +23,9 @@ final class OBDManager: ObservableObject {
     }
 
     func startConnection() {
-        connectionStatus = "Поиск адаптера ELM327..."
-
         Task { @MainActor in
+            connectionStatus = "Поиск адаптера ELM327..."
+
             do {
                 let service = OBDService(connectionType: .bluetooth)
                 self.obdService = service
@@ -46,27 +45,23 @@ final class OBDManager: ObservableObject {
     }
 
     private func startTemperatureMonitoring() {
-        timer?.invalidate()
+        monitoringTask?.cancel()
 
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self = self, let service = self.obdService else {
-                    self?.timer?.invalidate()
-                    return
-                }
+        monitoringTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+                guard let self = self, let service = self.obdService else { break }
 
                 do {
-                    let coolantCommand: OBDCommand = .mode1(.coolantTemp)
-                    let result = try await service.sendCommand(coolantCommand)
+                    let results = try await service.requestPIDs(
+                        [.mode1(.coolantTemp)],
+                        unit: .metric
+                    )
 
-                    switch result {
-                    case .success(let decodeResult):
-                        if case .measurementResult(let measurement) = decodeResult {
-                            self.currentTemperature = measurement.value
-                            self.evaluateFanLogic(temperature: measurement.value)
-                        }
-                    case .failure(let decodeError):
-                        print("Ошибка декодирования: " + String(describing: decodeError))
+                    if let measurement = results[.mode1(.coolantTemp)] {
+                        self.currentTemperature = measurement.value
+                        self.evaluateFanLogic(temperature: measurement.value)
                     }
 
                 } catch {
@@ -89,9 +84,9 @@ final class OBDManager: ObservableObject {
     }
 
     private func executeCommand(_ hexCommand: String, targetState: Bool, statusText: String) {
-        connectionStatus = statusText
-
         Task { @MainActor in
+            connectionStatus = statusText
+
             guard let service = self.obdService else {
                 connectionStatus = "Ошибка: сервис не инициализирован"
                 return
@@ -114,8 +109,8 @@ final class OBDManager: ObservableObject {
     }
 
     func stopConnection() {
-        timer?.invalidate()
-        timer = nil
+        monitoringTask?.cancel()
+        monitoringTask = nil
         obdService?.stopConnection()
         obdService = nil
         connectionStatus = "Отключено"
