@@ -4,8 +4,10 @@ import SwiftUI
 final class SettingsManager: ObservableObject {
 
     private enum Keys {
-        static let tempTurnOn  = "tempTurnOn"
-        static let tempTurnOff = "tempTurnOff"
+        static let tempTurnOn         = "tempTurnOn"
+        static let tempTurnOff        = "tempTurnOff"
+        static let selectedDeviceName = "selectedDeviceName"
+        static let selectedDeviceUUID = "selectedDeviceUUID"
     }
 
     static let minTemp: Double = 70.0
@@ -60,23 +62,37 @@ final class SettingsManager: ObservableObject {
         }
     }
 
-    var hysteresis: Double {
-        tempTurnOn - tempTurnOff
+    @Published var selectedDeviceName: String {
+        didSet { UserDefaults.standard.set(selectedDeviceName, forKey: Keys.selectedDeviceName) }
     }
+
+    @Published var selectedDeviceUUID: String {
+        didSet { UserDefaults.standard.set(selectedDeviceUUID, forKey: Keys.selectedDeviceUUID) }
+    }
+
+    var hysteresis: Double { tempTurnOn - tempTurnOff }
 
     var isValid: Bool {
         tempTurnOff < tempTurnOn && hysteresis >= Self.minGap
     }
 
+    var hasSelectedDevice: Bool {
+        !selectedDeviceUUID.isEmpty
+    }
+
     init() {
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
-            Keys.tempTurnOn:  98.0,
-            Keys.tempTurnOff: 90.0
+            Keys.tempTurnOn:         98.0,
+            Keys.tempTurnOff:        90.0,
+            Keys.selectedDeviceName: "",
+            Keys.selectedDeviceUUID: ""
         ])
 
-        self.tempTurnOn  = defaults.double(forKey: Keys.tempTurnOn)
-        self.tempTurnOff = defaults.double(forKey: Keys.tempTurnOff)
+        self.tempTurnOn         = defaults.double(forKey: Keys.tempTurnOn)
+        self.tempTurnOff        = defaults.double(forKey: Keys.tempTurnOff)
+        self.selectedDeviceName = defaults.string(forKey: Keys.selectedDeviceName) ?? ""
+        self.selectedDeviceUUID = defaults.string(forKey: Keys.selectedDeviceUUID) ?? ""
 
         if tempTurnOff >= tempTurnOn {
             isSyncing = true
@@ -93,6 +109,11 @@ final class SettingsManager: ObservableObject {
         tempTurnOff = 90.0
         isSyncing = false
         save()
+    }
+
+    func clearSelectedDevice() {
+        selectedDeviceName = ""
+        selectedDeviceUUID = ""
     }
 
     private func save() {
