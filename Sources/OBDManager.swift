@@ -11,6 +11,7 @@ final class OBDManager: ObservableObject {
 
     private let fanOnCommand  = "2F000A06FF"
     private let fanOffCommand = "2F000A00"
+    private let coolantTempCommand = "0105"
 
     @Published var isFanCurrentlyOn = false
     @Published var connectionStatus = "Отключено"
@@ -54,14 +55,22 @@ final class OBDManager: ObservableObject {
                 guard let self = self, let service = self.obdService else { break }
 
                 do {
-                    let results = try await service.requestPIDs(
-                        [.mode1(.coolantTemp)],
-                        unit: .metric
+                    let response = try await service.sendCommandInternal(
+                        self.coolantTempCommand,
+                        retries: 3
                     )
 
-                    if let measurement = results[.mode1(.coolantTemp)] {
-                        self.currentTemperature = measurement.value
-                        self.evaluateFanLogic(temperature: measurement.value)
+                    for line in response {
+                        let cleaned = line.replacingOccurrences(of: " ", with: "")
+                        if cleaned.hasPrefix("4105") && cleaned.count >= 6 {
+                            let hexString = String(cleaned.dropFirst(4).prefix(2))
+                            if let hexValue = UInt8(hexString, radix: 16) {
+                                let temperature = Double(hexValue) - 40.0
+                                self.currentTemperature = temperature
+                                self.evaluateFanLogic(temperature: temperature)
+                                break
+                            }
+                        }
                     }
 
                 } catch {
