@@ -8,6 +8,7 @@ final class SettingsManager: ObservableObject {
         static let tempTurnOff        = "tempTurnOff"
         static let selectedDeviceName = "selectedDeviceName"
         static let selectedDeviceUUID = "selectedDeviceUUID"
+        static let displayMode        = "displayMode"
     }
 
     static let minTemp: Double = 70.0
@@ -45,7 +46,7 @@ final class SettingsManager: ObservableObject {
             isSyncing = true
             defer { isSyncing = false }
 
-            var off = Self.clamp(tempTurnOff, min: Self.minTemp, max: Self.maxTemp)
+            var off = Self.clamp(tempTurnOff, min: Self.minTemp, max: Self.minTemp)
             var on  = tempTurnOn
 
             if on < off + Self.minGap {
@@ -70,6 +71,10 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(selectedDeviceUUID, forKey: Keys.selectedDeviceUUID) }
     }
 
+    @Published var displayMode: Int {
+        didSet { UserDefaults.standard.set(displayMode, forKey: Keys.displayMode) }
+    }
+
     var hysteresis: Double { tempTurnOn - tempTurnOff }
 
     var isValid: Bool {
@@ -86,13 +91,15 @@ final class SettingsManager: ObservableObject {
             Keys.tempTurnOn:         98.0,
             Keys.tempTurnOff:        90.0,
             Keys.selectedDeviceName: "",
-            Keys.selectedDeviceUUID: ""
+            Keys.selectedDeviceUUID: "",
+            Keys.displayMode:        0
         ])
 
         self.tempTurnOn         = defaults.double(forKey: Keys.tempTurnOn)
         self.tempTurnOff        = defaults.double(forKey: Keys.tempTurnOff)
         self.selectedDeviceName = defaults.string(forKey: Keys.selectedDeviceName) ?? ""
         self.selectedDeviceUUID = defaults.string(forKey: Keys.selectedDeviceUUID) ?? ""
+        self.displayMode        = defaults.integer(forKey: Keys.displayMode)
 
         if tempTurnOff >= tempTurnOn {
             isSyncing = true
