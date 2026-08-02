@@ -3,63 +3,11 @@ import SwiftOBD2
 import Combine
 import CoreBluetooth
 
-final class BluetoothAuthorizationChecker: NSObject, CBCentralManagerDelegate {
-
-    enum AuthResult {
-        case authorized
-        case denied
-        case notDetermined
-        case unsupported
-        case poweredOff
-    }
-
-    private var centralManager: CBCentralManager!
-    private var continuation: CheckedContinuation<AuthResult, Never>?
-
-    func checkAuthorization() async -> AuthResult {
-        switch CBCentralManager.authorization {
-        case .allowedAlways:
-            return .authorized
-        case .denied, .restricted:
-            return .denied
-        case .notDetermined:
-            break
-        @unknown default:
-            return .denied
-        }
-
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            DispatchQueue.main.async {
-                self.centralManager = CBCentralManager(delegate: self, queue: .main)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                self?.continuation?.resume(returning: .notDetermined)
-                self?.continuation = nil
-            }
-        }
-    }
-
-    func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        let result: AuthResult
-        switch central.state {
-        case .poweredOn:     result = .authorized
-        case .poweredOff:    result = .poweredOff
-        case .unauthorized:  result = .denied
-        case .unsupported:   result = .unsupported
-        default:             result = .notDetermined
-        }
-        continuation?.resume(returning: result)
-        continuation = nil
-    }
-}
-
 @MainActor
 final class OBDManager: ObservableObject {
 
     private var obdService: OBDService?
     private var timer: Timer?
-    private let authChecker = BluetoothAuthorizationChecker()
     private let settings: SettingsManager
 
     private let fanOnCommand  = "2F000A06FF"
@@ -76,45 +24,22 @@ final class OBDManager: ObservableObject {
     }
 
     func startConnection() {
-        connectionStatus = "Проверка Bluetooth..."
+        connectionStatus = "Поиск адаптера ELM327..."
 
         Task { @MainActor in
-            let authResult = await authChecker.checkAuthorization()
-
-            switch authResult {
-            case .authorized:
-                break
-            case .denied:
-                connectionStatus = "Bluetooth запрещён."
-                showErrorAlert("Bluetooth доступ запрещён. Откройте Настройки → Конфиденциальность → Bluetooth.")
-                return
-            case .notDetermined:
-                connectionStatus = "Разрешение не получено."
-                showErrorAlert("Не удалось получить разрешение Bluetooth. Попробуйте снова.")
-                return
-            case .unsupported:
-                connectionStatus = "Bluetooth не поддерживается."
-                showErrorAlert("Устройство не поддерживает Bluetooth Low Energy.")
-                return
-            case .poweredOff:
-                connectionStatus = "Bluetooth выключен."
-                showErrorAlert("Включите Bluetooth в Настройках.")
-                return
-            }
-
-            connectionStatus = "Поиск адаптера ELM327..."
-
             do {
                 let service = OBDService(connectionType: .bluetooth)
                 self.obdService = service
 
                 let vehicleInfo = try await service.startConnection(timeout: 15)
-                connectionStatus = "Подключено к \(vehicleInfo.vin ?? "авто"). Мониторинг..."
+                let vin = vehicleInfo.vin ?? "авто"
+                connectionStatus = "Подключено к " + vin + ". Мониторинг..."
                 startTemperatureMonitoring()
 
             } catch {
-                connectionStatus = "Ошибка: \(error.localizedDescription)"
-                showErrorAlert("Не удалось подключиться к ELM327.\n\nОшибка: \(error.localizedDescription)")
+                connectionStatus = "Ошибка: " + error.localizedDescription
+                errorMessage = "Не удалось подключиться к ELM327.\n\nОшибка: " + error.localizedDescription
+                showError = true
                 obdService = nil
             }
         }
@@ -141,11 +66,11 @@ final class OBDManager: ObservableObject {
                             self.evaluateFanLogic(temperature: measurement.value)
                         }
                     case .failure(let decodeError):
-                        print("Ошибка декодирования: \(decodeError)")
+                        print("Ошибка декодирования: " + String(describing: decodeError))
                     }
 
                 } catch {
-                    print("Ошибка чтения температуры: \(error.localizedDescription)")
+                    print("Ошибка чтения температуры: " + error.localizedDescription)
                 }
             }
         }
@@ -156,18 +81,10 @@ final class OBDManager: ObservableObject {
         let turnOffThreshold = settings.tempTurnOff
 
         if temperature >= turnOnThreshold && !isFanCurrentlyOn {
-            executeCommand(
-                fanOnCommand,
-                targetState: true,
-                statusText: "Включение вентилятора (>=\(Int(turnOnThreshold))°C)..."
-            )
+            executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
         }
         else if temperature <= turnOffThreshold && isFanCurrentlyOn {
-            executeCommand(
-                fanOffCommand,
-                targetState: false,
-                statusText: "Отключение вентилятора (<=\(Int(turnOffThreshold))°C)..."
-            )
+            executeCommand(fanOffCommand, targetState: false, statusText: "Отключение вентилятора...")
         }
     }
 
@@ -186,14 +103,12 @@ final class OBDManager: ObservableObject {
                     retries: 3
                 )
 
-                print("Ответ ЭБУ на \(hexCommand): \(responseLines.joined(separator: " "))")
+                print("Ответ ЭБУ: " + responseLines.joined(separator: " "))
                 isFanCurrentlyOn = targetState
-                connectionStatus = targetState
-                    ? "Вентилятор ВКЛ (>=\(Int(settings.tempTurnOn))°C)"
-                    : "Вентилятор ВЫКЛ (<=\(Int(settings.tempTurnOff))°C)"
+                connectionStatus = targetState ? "Вентилятор ВКЛ" : "Вентилятор ВЫКЛ"
 
             } catch {
-                connectionStatus = "Сбой команды: \(error.localizedDescription)"
+                connectionStatus = "Сбой команды: " + error.localizedDescription
             }
         }
     }
@@ -206,10 +121,5 @@ final class OBDManager: ObservableObject {
         connectionStatus = "Отключено"
         isFanCurrentlyOn = false
         currentTemperature = 0.0
-    }
-
-    private func showErrorAlert(_ message: String) {
-        errorMessage = message
-        showError = true
     }
 }
