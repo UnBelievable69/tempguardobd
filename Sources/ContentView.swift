@@ -18,17 +18,32 @@ struct ContentView: View {
 
                 Spacer()
 
-                Button(action: { obdManager.startConnection() }) {
-                    Text(obdManager.isMonitoring ? "Мониторинг активен" : "Подключиться к ELM327")
+                if obdManager.isMonitoring {
+                    Button(action: { obdManager.stopConnection() }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "xmark.circle.fill")
+                            Text("Отключить")
+                        }
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(obdManager.isMonitoring ? Color.green : Color.blue)
+                        .background(Color.red)
                         .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+                } else {
+                    Button(action: { obdManager.startConnection() }) {
+                        Text("Подключиться к ELM327")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
                 }
-                .disabled(obdManager.isMonitoring)
-                .padding(.horizontal)
 
                 Text(obdManager.connectionStatus)
                     .font(.footnote)
