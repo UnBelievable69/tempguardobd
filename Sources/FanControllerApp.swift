@@ -3,15 +3,13 @@ import SwiftUI
 @main
 struct FanControllerApp: App {
 
-    // Общие объекты для всех вкладок
-    @StateObject private var settings    = SettingsManager()
+    @StateObject private var settings: SettingsManager
     @StateObject private var obdManager: OBDManager
 
     init() {
-        // SettingsManager создаётся первым, OBDManager получает ссылку на него
-        let settings = SettingsManager()
-        _settings    = StateObject(wrappedValue: settings)
-        _obdManager  = StateObject(wrappedValue: OBDManager(settings: settings))
+        let s = SettingsManager()
+        _settings   = StateObject(wrappedValue: s)
+        _obdManager = StateObject(wrappedValue: OBDManager(settings: s))
     }
 
     var body: some Scene {
@@ -23,7 +21,7 @@ struct FanControllerApp: App {
                         Text("Контроллер")
                     }
 
-                SettingsView(settings: settings)
+                SettingsView(settings: settings, obdManager: obdManager)
                     .tabItem {
                         Image(systemName: "gearshape.fill")
                         Text("Настройки")
