@@ -1,13 +1,25 @@
 import Foundation
-import SwiftOBD2
 import Combine
 import CoreBluetooth
 
 final class OBDManager: ObservableObject {
 
-    private var obdService: OBDService?
-    private var monitoringTask: Task<Void, Never>?
     private let settings: SettingsManager
+
+    private var central: CBCentralManager!
+    private var peripheral: CBPeripheral?
+    private var writeChar: CBCharacteristic?
+    private var notifyChar: CBCharacteristic?
+    private var writeType: CBCharacteristicWriteType = .withResponse
+    private var isConnected = false
+
+    private var responseBuffer = ""
+    private var pendingSent = ""
+    private var pendingContinuation: CheckedContinuation<[String], Never>?
+    private var connectContinuation: CheckedContinuation<Bool, Never>?
+    private var stateContinuation: CheckedContinuation<Void, Never>?
+    private var servicesPending = 0
+    private var monitoringTask: Task<Void, Never>?
 
     private let fanOnCommand  = "2F000A06FF"
     private let fanOffCommand = "2F000A00"
@@ -25,49 +37,111 @@ final class OBDManager: ObservableObject {
 
     func startConnection() {
         Task { @MainActor in
-            do {
-                let service = OBDService(connectionType: .bluetooth)
-                self.obdService = service
+            monitoringTask?.cancel()
+            isConnected = false
+            responseBuffer = ""
 
-                if let peripheral = retrieveSelectedPeripheral() {
-                    connectionStatus = "Подключение к " + settings.selectedDeviceName + "..."
-                    try await service.connectToPeripheral(peripheral: peripheral)
-
-                    connectionStatus = "Инициализация адаптера..."
-                    try await initializeAdapter(service)
-                } else {
-                    connectionStatus = "Поиск адаптера ELM327..."
-                    let _ = try await service.startConnection(timeout: 15)
-                }
-
-                connectionStatus = "Подключено. Мониторинг..."
-                startTemperatureMonitoring()
-
-            } catch {
-                connectionStatus = "Ошибка: " + error.localizedDescription
-                errorMessage = "Не удалось подключиться к ELM327. " + error.localizedDescription
+            guard !settings.selectedDeviceUUID.isEmpty,
+                  let uuid = UUID(uuidString: settings.selectedDeviceUUID) else {
+                connectionStatus = "Адаптер не выбран"
+                errorMessage = "Сначала выберите адаптер: Настройки → Адаптер → нажмите на устройство в списке."
                 showError = true
-                obdService = nil
+                return
             }
+
+            connectionStatus = "Подключение к " + settings.selectedDeviceName + "..."
+
+            if central == nil {
+                central = CBCentralManager(delegate: self, queue: .main)
+            }
+
+            if central.state != .poweredOn {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    stateContinuation = cont
+                }
+            }
+
+            guard central.state == .poweredOn else {
+                connectionStatus = "Bluetooth не готов"
+                errorMessage = "Включите Bluetooth в Настройках iPhone."
+                showError = true
+                return
+            }
+
+            let list = central.retrievePeripherals(withIdentifiers: [uuid])
+            guard let p = list.first else {
+                connectionStatus = "Адаптер не найден"
+                errorMessage = "Не удалось найти адаптер. Откройте Настройки → Адаптер и выберите его заново."
+                showError = true
+                return
+            }
+
+            peripheral = p
+            p.delegate = self
+
+            let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                connectContinuation = cont
+                central.connect(p, options: nil)
+            }
+
+            guard ok else {
+                connectionStatus = "Ошибка подключения"
+                errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
+                showError = true
+                return
+            }
+
+            connectionStatus = "Инициализация адаптера..."
+            let _ = await sendCommand("ATZ")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let _ = await sendCommand("ATE0")
+            let _ = await sendCommand("ATL0")
+            let _ = await sendCommand("ATS0")
+            let _ = await sendCommand("ATSP0")
+            let _ = await sendCommand("0100")
+
+            connectionStatus = "Подключено. Мониторинг..."
+            startTemperatureMonitoring()
         }
     }
 
-    private func retrieveSelectedPeripheral() -> CBPeripheral? {
-        guard !settings.selectedDeviceUUID.isEmpty else { return nil }
-        guard let uuid = UUID(uuidString: settings.selectedDeviceUUID) else { return nil }
-        let central = CBCentralManager(delegate: nil, queue: nil)
-        let found = central.retrievePeripherals(withIdentifiers: [uuid])
-        return found.first
+    @MainActor
+    private func sendCommand(_ cmd: String) async -> [String] {
+        guard isConnected, let p = peripheral, let wc = writeChar else { return [] }
+        responseBuffer = ""
+        pendingSent = cmd.uppercased().replacingOccurrences(of: " ", with: "")
+        let data = (cmd + "\r").data(using: .ascii) ?? Data()
+
+        let result: [String] = await withCheckedContinuation { (cont: CheckedContinuation<[String], Never>) in
+            pendingContinuation = cont
+            p.writeValue(data, for: wc, type: writeType)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+                guard let self = self else { return }
+                if let c = self.pendingContinuation {
+                    self.pendingContinuation = nil
+                    c.resume(returning: self.parseBuffer())
+                }
+            }
+        }
+        return result
     }
 
-    private func initializeAdapter(_ service: OBDService) async throws {
-        let _ = try await service.sendCommandInternal("ATZ", retries: 3)
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        let _ = try await service.sendCommandInternal("ATE0", retries: 3)
-        let _ = try await service.sendCommandInternal("ATL0", retries: 3)
-        let _ = try await service.sendCommandInternal("ATS0", retries: 3)
-        let _ = try await service.sendCommandInternal("ATSP0", retries: 3)
-        let _ = try? await service.sendCommandInternal("0100", retries: 3)
+    private func parseBuffer() -> [String] {
+        let raw = responseBuffer
+        responseBuffer = ""
+        let parts = raw.split(whereSeparator: { $0 == "\r" || $0 == "\n" })
+        var lines: [String] = []
+        for part in parts {
+            let line = part.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if line == ">" { continue }
+            let norm = line.uppercased().replacingOccurrences(of: " ", with: "")
+            if norm == pendingSent { continue }
+            let trimmed = line.trimmingCharacters(in: CharacterSet(charactersIn: ">"))
+            if trimmed.isEmpty { continue }
+            lines.append(trimmed)
+        }
+        return lines
     }
 
     private func startTemperatureMonitoring() {
@@ -75,34 +149,30 @@ final class OBDManager: ObservableObject {
         monitoringTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self = self, let service = self.obdService else { break }
-                do {
-                    let response = try await service.sendCommandInternal(self.coolantTempCommand, retries: 3)
-                    for line in response {
-                        let cleaned = line.replacingOccurrences(of: " ", with: "")
-                        if cleaned.hasPrefix("4105") && cleaned.count >= 6 {
-                            let hexString = String(cleaned.dropFirst(4).prefix(2))
-                            if let hexValue = UInt8(hexString, radix: 16) {
-                                let temperature = Double(hexValue) - 40.0
-                                self.currentTemperature = temperature
-                                self.evaluateFanLogic(temperature: temperature)
-                                break
-                            }
+                guard let self = self, self.isConnected else { continue }
+                let lines = await self.sendCommand(self.coolantTempCommand)
+                for line in lines {
+                    let n = line.uppercased().replacingOccurrences(of: " ", with: "")
+                    if n.hasPrefix("4105") && n.count >= 6 {
+                        let hex = String(n.dropFirst(4).prefix(2))
+                        if let v = UInt8(hex, radix: 16) {
+                            let temperature = Double(v) - 40.0
+                            self.currentTemperature = temperature
+                            self.evaluateFanLogic(temperature: temperature)
+                            break
                         }
                     }
-                } catch {
-                    print("Ошибка чтения температуры: " + error.localizedDescription)
                 }
             }
         }
     }
 
     private func evaluateFanLogic(temperature: Double) {
-        let turnOnThreshold  = settings.tempTurnOn
-        let turnOffThreshold = settings.tempTurnOff
-        if temperature >= turnOnThreshold && !isFanCurrentlyOn {
+        let on  = settings.tempTurnOn
+        let off = settings.tempTurnOff
+        if temperature >= on && !isFanCurrentlyOn {
             executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
-        } else if temperature <= turnOffThreshold && isFanCurrentlyOn {
+        } else if temperature <= off && isFanCurrentlyOn {
             executeCommand(fanOffCommand, targetState: false, statusText: "Отключение вентилятора...")
         }
     }
@@ -110,28 +180,99 @@ final class OBDManager: ObservableObject {
     private func executeCommand(_ hexCommand: String, targetState: Bool, statusText: String) {
         Task { @MainActor in
             connectionStatus = statusText
-            guard let service = self.obdService else {
-                connectionStatus = "Ошибка: сервис не инициализирован"
-                return
-            }
-            do {
-                let responseLines: [String] = try await service.sendCommandInternal(hexCommand, retries: 3)
-                print("Ответ ЭБУ: " + responseLines.joined(separator: " "))
-                isFanCurrentlyOn = targetState
-                connectionStatus = targetState ? "Вентилятор ВКЛ" : "Вентилятор ВЫКЛ"
-            } catch {
-                connectionStatus = "Сбой команды: " + error.localizedDescription
-            }
+            let _ = await sendCommand(hexCommand)
+            isFanCurrentlyOn = targetState
+            connectionStatus = targetState ? "Вентилятор ВКЛ" : "Вентилятор ВЫКЛ"
         }
     }
 
     func stopConnection() {
         monitoringTask?.cancel()
         monitoringTask = nil
-        obdService?.stopConnection()
-        obdService = nil
+        if let p = peripheral { central?.cancelPeripheralConnection(p) }
+        peripheral = nil
+        writeChar = nil
+        notifyChar = nil
+        isConnected = false
         connectionStatus = "Отключено"
         isFanCurrentlyOn = false
         currentTemperature = 0.0
+    }
+}
+
+extension OBDManager: CBCentralManagerDelegate {
+
+    func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        if let cont = stateContinuation, c.state != .unknown && c.state != .resetting {
+            stateContinuation = nil
+            cont.resume()
+        }
+    }
+
+    func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
+        p.discoverServices(nil)
+    }
+
+    func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
+        if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
+    }
+
+    func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        isConnected = false
+        if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
+    }
+}
+
+extension OBDManager: CBPeripheralDelegate {
+
+    func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
+        guard let svcs = p.services, !svcs.isEmpty else {
+            if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
+            return
+        }
+        servicesPending = svcs.count
+        for s in svcs { p.discoverCharacteristics(nil, for: s) }
+    }
+
+    func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if let chars = service.characteristics {
+            for ch in chars {
+                if writeChar == nil && (ch.properties.contains(.write) || ch.properties.contains(.writeWithoutResponse)) {
+                    writeChar = ch
+                    writeType = ch.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
+                }
+                if notifyChar == nil && ch.properties.contains(.notify) {
+                    notifyChar = ch
+                }
+            }
+        }
+        servicesPending -= 1
+        if servicesPending <= 0 {
+            if let nc = notifyChar {
+                p.setNotifyValue(true, for: nc)
+            } else if let cont = connectContinuation {
+                connectContinuation = nil
+                cont.resume(returning: false)
+            }
+        }
+    }
+
+    func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        if characteristic == notifyChar {
+            isConnected = (error == nil)
+            if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: isConnected) }
+        }
+    }
+
+    func peripheral(_ p: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard let s = String(data: characteristic.value ?? Data(), encoding: .ascii) else { return }
+        guard pendingContinuation != nil else { responseBuffer = ""; return }
+        responseBuffer += s
+        if responseBuffer.contains(">") {
+            if let cont = pendingContinuation {
+                pendingContinuation = nil
+                cont.resume(returning: parseBuffer())
+            }
+        }
     }
 }
