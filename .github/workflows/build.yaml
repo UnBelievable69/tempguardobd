@@ -14,8 +14,6 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # Use the DEFAULT Xcode (16.4) which has iOS SDK pre-installed.
-      # No need for xcode-select or -downloadPlatform.
       - name: Verify Xcode and iOS SDK
         run: |
           xcodebuild -version
