@@ -38,7 +38,7 @@ final class OBDManager: ObservableObject {
 
             } catch {
                 connectionStatus = "Ошибка: " + error.localizedDescription
-                errorMessage = "Не удалось подключиться к ELM327.\n\nОшибка: " + error.localizedDescription
+                errorMessage = "Не удалось подключиться к ELM327. " + error.localizedDescription
                 showError = true
                 obdService = nil
             }
