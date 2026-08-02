@@ -58,6 +58,12 @@ struct ContentView: View {
             Spacer()
         }
         .padding()
+        // FIX: Показываем alert с понятной ошибкой вместо краша
+        .alert("Ошибка", isPresented: $obdManager.showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(obdManager.errorMessage)
+        }
         .onDisappear {
             obdManager.stopConnection()
         }
