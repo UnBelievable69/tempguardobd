@@ -8,7 +8,6 @@ struct ContentView: View {
         NavigationView {
             VStack(spacing: 24) {
 
-                // MARK: - Температура
                 VStack(spacing: 4) {
                     Text("\(Int(obdManager.currentTemperature))°C")
                         .font(.system(size: 74, weight: .bold, design: .rounded))
@@ -20,7 +19,6 @@ struct ContentView: View {
                 }
                 .padding(.top, 20)
 
-                // MARK: - Пороги (краткая сводка)
                 HStack(spacing: 20) {
                     ThresholdBadge(
                         label: "ВКЛ",
@@ -36,7 +34,6 @@ struct ContentView: View {
                     )
                 }
 
-                // MARK: - Статус вентилятора
                 HStack {
                     Circle()
                         .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
@@ -52,7 +49,6 @@ struct ContentView: View {
 
                 Spacer()
 
-                // MARK: - Кнопка подключения
                 Button(action: {
                     obdManager.startConnection()
                 }) {
@@ -70,7 +66,6 @@ struct ContentView: View {
                 .disabled(obdManager.connectionStatus.contains("Подключено"))
                 .padding(.horizontal)
 
-                // MARK: - Статус
                 Text(obdManager.connectionStatus)
                     .font(.footnote)
                     .foregroundColor(.secondary)
@@ -98,8 +93,6 @@ struct ContentView: View {
         return .blue
     }
 }
-
-// MARK: - Бейдж порога
 
 struct ThresholdBadge: View {
     let label: String
