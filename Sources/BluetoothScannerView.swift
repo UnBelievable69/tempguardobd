@@ -172,9 +172,8 @@ struct DeviceRowView: View {
                         }
                     }
                     Text(device.id.uuidString.prefix(13).uppercased())
-                        .font(.caption2)
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundColor(.secondary)
-                        .monospaced()
                 }
 
                 Spacer()
