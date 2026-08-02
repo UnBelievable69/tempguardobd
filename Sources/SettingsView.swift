@@ -193,7 +193,7 @@ struct SettingsView: View {
             .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showScanner) {
-                BluetoothScannerView(settings: settings) {
+                BluetoothScannerView(settings: settings, isPresented: $showScanner) {
                     obdManager.startConnection()
                 }
             }
