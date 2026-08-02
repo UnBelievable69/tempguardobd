@@ -73,49 +73,34 @@ struct ContentView: View {
 
     private var compactControls: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                HStack(spacing: 0) {
-                    segmentButton("АВТО", 0)
-                    segmentButton("ВКЛ", 1)
-                    segmentButton("ВЫКЛ", 2)
-                }
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
 
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
-                        .frame(width: 8, height: 8)
-                    Text(fanStatusText)
-                        .font(.caption)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
+                    .frame(width: 8, height: 8)
+                Text(fanStatusText)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
 
-            HStack(spacing: 10) {
-                Text(String(Int(settings.tempTurnOn)) + "°C ВКЛ")
-                    .font(.subheadline)
-                    .bold()
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.15))
-                    .cornerRadius(10)
-
-                Text(String(Int(settings.tempTurnOff)) + "°C ВЫКЛ")
-                    .font(.subheadline)
-                    .bold()
-                    .foregroundColor(.green)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.15))
-                    .cornerRadius(10)
+            HStack(spacing: 0) {
+                segmentButton("АВТО", 0)
+                segmentButton("ВКЛ", 1)
+                segmentButton("ВЫКЛ", 2)
             }
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+
+            HStack(spacing: 20) {
+                ThresholdBadge(label: "ВКЛ", temp: settings.tempTurnOn, color: .red, icon: "fan.fill", showLabel: false)
+                ThresholdBadge(label: "ВЫКЛ", temp: settings.tempTurnOff, color: .green, icon: "fan", showLabel: false)
+            }
+            .padding(.top, 4)
         }
         .padding(.horizontal)
     }
@@ -188,6 +173,7 @@ struct ThresholdBadge: View {
     let temp: Double
     let color: Color
     let icon: String
+    var showLabel: Bool = true
 
     var body: some View {
         VStack(spacing: 6) {
@@ -199,9 +185,11 @@ struct ThresholdBadge: View {
                 .bold()
                 .foregroundColor(color)
                 .monospacedDigit()
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if showLabel {
+                Text(label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .frame(width: 90)
         .padding(.vertical, 12)
