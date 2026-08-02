@@ -3,8 +3,6 @@ import SwiftOBD2
 import Combine
 import CoreBluetooth
 
-// MARK: - Bluetooth Authorization Checker
-
 final class BluetoothAuthorizationChecker: NSObject, CBCentralManagerDelegate {
 
     enum AuthResult {
@@ -56,16 +54,12 @@ final class BluetoothAuthorizationChecker: NSObject, CBCentralManagerDelegate {
     }
 }
 
-// MARK: - OBDManager
-
 @MainActor
 final class OBDManager: ObservableObject {
 
     private var obdService: OBDService?
     private var timer: Timer?
     private let authChecker = BluetoothAuthorizationChecker()
-
-    // FIX: Пороги теперь читаются из SettingsManager, а не захардкожены
     private let settings: SettingsManager
 
     private let fanOnCommand  = "2F000A06FF"
@@ -77,13 +71,9 @@ final class OBDManager: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
 
-    // MARK: - Init
-
     init(settings: SettingsManager) {
         self.settings = settings
     }
-
-    // MARK: - Подключение
 
     func startConnection() {
         connectionStatus = "Проверка Bluetooth..."
@@ -130,8 +120,6 @@ final class OBDManager: ObservableObject {
         }
     }
 
-    // MARK: - Мониторинг температуры
-
     private func startTemperatureMonitoring() {
         timer?.invalidate()
 
@@ -163,10 +151,7 @@ final class OBDManager: ObservableObject {
         }
     }
 
-    // MARK: - Логика управления вентилятором
-
     private func evaluateFanLogic(temperature: Double) {
-        // FIX: Пороги берутся из SettingsManager
         let turnOnThreshold  = settings.tempTurnOn
         let turnOffThreshold = settings.tempTurnOff
 
@@ -174,19 +159,17 @@ final class OBDManager: ObservableObject {
             executeCommand(
                 fanOnCommand,
                 targetState: true,
-                statusText: "Включение вентилятора (≥\(Int(turnOnThreshold))°C)..."
+                statusText: "Включение вентилятора (>=\(Int(turnOnThreshold))°C)..."
             )
         }
         else if temperature <= turnOffThreshold && isFanCurrentlyOn {
             executeCommand(
                 fanOffCommand,
                 targetState: false,
-                statusText: "Отключение вентилятора (≤\(Int(turnOffThreshold))°C)..."
+                statusText: "Отключение вентилятора (<=\(Int(turnOffThreshold))°C)..."
             )
         }
     }
-
-    // MARK: - Отправка сырой HEX-команды
 
     private func executeCommand(_ hexCommand: String, targetState: Bool, statusText: String) {
         connectionStatus = statusText
@@ -206,16 +189,14 @@ final class OBDManager: ObservableObject {
                 print("Ответ ЭБУ на \(hexCommand): \(responseLines.joined(separator: " "))")
                 isFanCurrentlyOn = targetState
                 connectionStatus = targetState
-                    ? "Вентилятор ВКЛ (≥\(Int(settings.tempTurnOn))°C)"
-                    : "Вентилятор ВЫКЛ (≤\(Int(settings.tempTurnOff))°C)"
+                    ? "Вентилятор ВКЛ (>=\(Int(settings.tempTurnOn))°C)"
+                    : "Вентилятор ВЫКЛ (<=\(Int(settings.tempTurnOff))°C)"
 
             } catch {
                 connectionStatus = "Сбой команды: \(error.localizedDescription)"
             }
         }
     }
-
-    // MARK: - Остановка
 
     func stopConnection() {
         timer?.invalidate()
@@ -226,8 +207,6 @@ final class OBDManager: ObservableObject {
         isFanCurrentlyOn = false
         currentTemperature = 0.0
     }
-
-    // MARK: - Alert
 
     private func showErrorAlert(_ message: String) {
         errorMessage = message
