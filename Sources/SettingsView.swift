@@ -49,6 +49,39 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Picker("Режим", selection: $settings.displayMode) {
+                        Text("Классика").tag(0)
+                        Text("График").tag(1)
+                        Text("Override").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } header: {
+                    Text("Экран контроллера")
+                } footer: {
+                    Text("Какой экран показывать на вкладке Контроллер.")
+                }
+
+                Section {
+                    NavigationLink(destination: JournalView()) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "list.bullet.rectangle.fill")
+                                .foregroundColor(.purple)
+                                .frame(width: 32)
+                            Text("Журнал событий")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(String(EventJournal.shared.events.count))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Журнал")
+                } footer: {
+                    Text("История включений вентилятора, перегревов и подключений.")
+                }
+
+                Section {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Image(systemName: "fan.fill")
