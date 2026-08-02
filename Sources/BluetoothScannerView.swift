@@ -23,7 +23,7 @@ struct BluetoothScannerView: View {
                     stateView(
                         icon: "lock.shield",
                         title: "Нет доступа к Bluetooth",
-                        message: "Разрешите доступ: Настройки → Конфиденциальность → Bluetooth."
+                        message: "Разрешите доступ: Настройки - Конфиденциальность - Bluetooth."
                     )
                 case .unsupported:
                     stateView(
@@ -79,7 +79,7 @@ struct BluetoothScannerView: View {
             }
 
             Section(
-                header: Text("Найденные устройства (\(scanner.discoveredDevices.count))")
+                header: Text("Найденные устройства (" + String(scanner.discoveredDevices.count) + ")")
             ) {
                 if scanner.discoveredDevices.isEmpty && !scanner.isScanning {
                     HStack {
@@ -90,7 +90,7 @@ struct BluetoothScannerView: View {
                                 .foregroundColor(.secondary)
                             Text("Устройства не найдены")
                                 .foregroundColor(.secondary)
-                            Text("Убедитесь что адаптер ELM327 вставлен в OBD2 разъём\nи зажигание включено. Нажмите ↻ для повтора.")
+                            Text("Вставьте ELM327 в OBD2 разъём и включите зажигание. Нажмите ↻ для повтора.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
@@ -181,7 +181,7 @@ struct DeviceRowView: View {
 
                 VStack(spacing: 2) {
                     SignalBarsView(strength: device.signal)
-                    Text("\(device.rssi) dBm")
+                    Text(String(device.rssi) + " dBm")
                         .font(.system(size: 8))
                         .foregroundColor(.secondary)
                         .monospacedDigit()
