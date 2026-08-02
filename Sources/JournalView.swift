@@ -93,6 +93,7 @@ struct EventRow: View {
         case 1: return "fan.fill"
         case 2: return "exclamationmark.triangle.fill"
         case 3: return "bolt.fill"
+        case 5: return "xmark.circle.fill"
         default: return "slash.circle"
         }
     }
@@ -103,6 +104,7 @@ struct EventRow: View {
         case 1: return .green
         case 2: return .orange
         case 3: return .blue
+        case 5: return .red
         default: return .gray
         }
     }
@@ -117,6 +119,7 @@ struct EventRow: View {
         case 1: return "Вентилятор ВЫКЛ"
         case 2: return "Перегрев!"
         case 3: return "Подключено к ELM327"
+        case 5: return "Не удалось подключиться"
         default: return "Отключено"
         }
     }
