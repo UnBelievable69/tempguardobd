@@ -20,6 +20,7 @@ final class OBDManager: NSObject, ObservableObject {
     private var stateContinuation: CheckedContinuation<Void, Never>?
     private var servicesPending = 0
     private var monitoringTask: Task<Void, Never>?
+    private var overheatLogged = false
 
     private let fanOnCommand  = "2F000A06FF"
     private let fanOffCommand = "2F000A00"
@@ -31,6 +32,8 @@ final class OBDManager: NSObject, ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
     @Published var isMonitoring = false
+    @Published var history: [TempPoint] = []
+    @Published var fanMode: Int = 0
 
     init(settings: SettingsManager) {
         self.settings = settings
@@ -105,7 +108,22 @@ final class OBDManager: NSObject, ObservableObject {
 
             connectionStatus = "Подключено. Мониторинг..."
             isMonitoring = true
+            EventJournal.shared.log(3, temp: 0)
             startTemperatureMonitoring()
+        }
+    }
+
+    func setFanMode(_ mode: Int) {
+        fanMode = mode
+        guard isConnected else { return }
+        if mode == 1 {
+            executeCommand(fanOnCommand, targetState: true, statusText: "Принудительно ВКЛ")
+            EventJournal.shared.log(0, temp: currentTemperature)
+        } else if mode == 2 {
+            executeCommand(fanOffCommand, targetState: false, statusText: "Принудительно ВЫКЛ")
+            EventJournal.shared.log(1, temp: currentTemperature)
+        } else {
+            connectionStatus = "Подключено. Мониторинг..."
         }
     }
 
@@ -162,6 +180,19 @@ final class OBDManager: NSObject, ObservableObject {
                         if let v = UInt8(hex, radix: 16) {
                             let temperature = Double(v) - 40.0
                             self.currentTemperature = temperature
+
+                            self.history.append(TempPoint(time: Date(), temp: temperature))
+                            if self.history.count > 300 {
+                                self.history.removeFirst()
+                            }
+
+                            if temperature >= 110 && !self.overheatLogged {
+                                self.overheatLogged = true
+                                EventJournal.shared.log(2, temp: temperature)
+                            } else if temperature < 105 {
+                                self.overheatLogged = false
+                            }
+
                             self.evaluateFanLogic(temperature: temperature)
                             break
                         }
@@ -172,12 +203,15 @@ final class OBDManager: NSObject, ObservableObject {
     }
 
     private func evaluateFanLogic(temperature: Double) {
+        guard fanMode == 0 else { return }
         let on  = settings.tempTurnOn
         let off = settings.tempTurnOff
         if temperature >= on && !isFanCurrentlyOn {
             executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
+            EventJournal.shared.log(0, temp: temperature)
         } else if temperature <= off && isFanCurrentlyOn {
             executeCommand(fanOffCommand, targetState: false, statusText: "Отключение вентилятора...")
+            EventJournal.shared.log(1, temp: temperature)
         }
     }
 
@@ -226,6 +260,7 @@ extension OBDManager: CBCentralManagerDelegate {
         isConnected = false
         isMonitoring = false
         monitoringTask?.cancel()
+        EventJournal.shared.log(4, temp: 0)
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
     }
 }
