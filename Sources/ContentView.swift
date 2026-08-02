@@ -6,33 +6,15 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
-                VStack(spacing: 4) {
-                    Text(String(Int(obdManager.currentTemperature)) + "°C")
-                        .font(.system(size: 74, weight: .bold, design: .rounded))
-                        .foregroundColor(temperatureColor)
-                        .monospacedDigit()
-                    Text("Температура ОЖ")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                }
-                .padding(.top, 20)
+            VStack(spacing: 16) {
 
-                HStack(spacing: 20) {
-                    ThresholdBadge(label: "ВКЛ", temp: settings.tempTurnOn, color: .red, icon: "fan.fill")
-                    ThresholdBadge(label: "ВЫКЛ", temp: settings.tempTurnOff, color: .green, icon: "fan")
+                if settings.displayMode == 1 {
+                    TemperatureGraphView(obdManager: obdManager, settings: settings)
+                } else if settings.displayMode == 2 {
+                    FanOverrideView(obdManager: obdManager)
+                } else {
+                    classicView
                 }
-
-                HStack {
-                    Circle()
-                        .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
-                        .frame(width: 15, height: 15)
-                    Text(obdManager.isFanCurrentlyOn ? "Вентилятор: ВКЛ" : "Вентилятор: АВТО (ВЫКЛ)")
-                        .font(.headline)
-                }
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
 
                 Spacer()
 
@@ -66,8 +48,39 @@ struct ContentView: View {
         }
     }
 
+    private var classicView: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 4) {
+                Text(String(Int(obdManager.currentTemperature)) + "°C")
+                    .font(.system(size: 74, weight: .bold, design: .rounded))
+                    .foregroundColor(temperatureColor)
+                    .monospacedDigit()
+                Text("Температура ОЖ")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+            }
+            .padding(.top, 20)
+
+            HStack(spacing: 20) {
+                ThresholdBadge(label: "ВКЛ", temp: settings.tempTurnOn, color: .red, icon: "fan.fill")
+                ThresholdBadge(label: "ВЫКЛ", temp: settings.tempTurnOff, color: .green, icon: "fan")
+            }
+
+            HStack {
+                Circle()
+                    .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
+                    .frame(width: 15, height: 15)
+                Text(obdManager.isFanCurrentlyOn ? "Вентилятор: ВКЛ" : "Вентилятор: АВТО (ВЫКЛ)")
+                    .font(.headline)
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+        }
+    }
+
     private var temperatureColor: Color {
-        if obdManager.currentTemperature >= settings.tempTurnOn { return .red }
+        if obdManager.currentTemperature >= settings.tempTurnOn  { return .red }
         if obdManager.currentTemperature >= settings.tempTurnOff { return .orange }
         return .blue
     }
