@@ -12,6 +12,14 @@ struct ContentView: View {
                     TemperatureGraphView(obdManager: obdManager, settings: settings)
                 } else if settings.displayMode == 2 {
                     FanOverrideView(obdManager: obdManager)
+                } else if settings.displayMode == 3 {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 16) {
+                            TemperatureGraphView(obdManager: obdManager, settings: settings)
+                            compactControls
+                        }
+                        .padding(.bottom, 8)
+                    }
                 } else {
                     classicView
                 }
@@ -61,6 +69,80 @@ struct ContentView: View {
         } message: {
             Text(obdManager.errorMessage)
         }
+    }
+
+    private var compactControls: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                HStack(spacing: 0) {
+                    segmentButton("АВТО", 0)
+                    segmentButton("ВКЛ", 1)
+                    segmentButton("ВЫКЛ", 2)
+                }
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(obdManager.isFanCurrentlyOn ? Color.red : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(fanStatusText)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+            }
+
+            HStack(spacing: 10) {
+                Text(String(Int(settings.tempTurnOn)) + "°C ВКЛ")
+                    .font(.subheadline)
+                    .bold()
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.15))
+                    .cornerRadius(10)
+
+                Text(String(Int(settings.tempTurnOff)) + "°C ВЫКЛ")
+                    .font(.subheadline)
+                    .bold()
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(10)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var fanStatusText: String {
+        if obdManager.fanMode == 1 { return "Вентилятор: ВКЛ" }
+        if obdManager.fanMode == 2 { return "Вентилятор: ВЫКЛ" }
+        return obdManager.isFanCurrentlyOn ? "Вентилятор: ВКЛ" : "Вентилятор: АВТО (ВЫКЛ)"
+    }
+
+    private func segmentButton(_ title: String, _ mode: Int) -> some View {
+        Button(action: { obdManager.setFanMode(mode) }) {
+            Text(title)
+                .font(.subheadline)
+                .bold()
+                .foregroundColor(obdManager.fanMode == mode ? .white : .primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(obdManager.fanMode == mode ? segmentColor(mode) : Color.clear)
+                .cornerRadius(12)
+        }
+    }
+
+    private func segmentColor(_ mode: Int) -> Color {
+        if mode == 1 { return .red }
+        if mode == 2 { return .green }
+        return .blue
     }
 
     private var classicView: some View {
