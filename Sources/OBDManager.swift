@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import CoreBluetooth
 
-final class OBDManager: ObservableObject {
+final class OBDManager: NSObject, ObservableObject {
 
     private let settings: SettingsManager
 
@@ -33,6 +33,7 @@ final class OBDManager: ObservableObject {
 
     init(settings: SettingsManager) {
         self.settings = settings
+        super.init()
     }
 
     func startConnection() {
