@@ -12,6 +12,7 @@ final class OBDManager: NSObject, ObservableObject {
     private var notifyChar: CBCharacteristic?
     private var writeType: CBCharacteristicWriteType = .withResponse
     private var isConnected = false
+    private var connecting = false
 
     private var responseBuffer = ""
     private var pendingSent = ""
@@ -55,6 +56,10 @@ final class OBDManager: NSObject, ObservableObject {
                 guard let self = self else { return }
                 if self.session == token && !self.isMonitoring {
                     self.session += 1
+                    if self.connecting {
+                        self.connecting = false
+                        EventJournal.shared.log(5, temp: 0)
+                    }
                     self.resetConnectionState()
                     self.connectionStatus = "Тайм-аут подключения"
                     self.errorMessage = "Адаптер не ответил за 10 секунд. Убедитесь что зажигание включено и адаптер вставлен в OBD2 разъём."
@@ -120,6 +125,7 @@ final class OBDManager: NSObject, ObservableObject {
 
         peripheral = p
         p.delegate = self
+        connecting = true
 
         let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             connectContinuation = cont
@@ -129,6 +135,8 @@ final class OBDManager: NSObject, ObservableObject {
 
         guard ok else {
             session += 1
+            connecting = false
+            EventJournal.shared.log(5, temp: 0)
             connectionStatus = "Ошибка подключения"
             errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
             showError = true
@@ -147,6 +155,7 @@ final class OBDManager: NSObject, ObservableObject {
         let _ = await sendCommand("0100")
         guard token == session else { return }
 
+        connecting = false
         connectionStatus = "Подключено. Мониторинг..."
         isMonitoring = true
         session += 1
@@ -267,6 +276,8 @@ final class OBDManager: NSObject, ObservableObject {
 
     func stopConnection() {
         session += 1
+        connecting = false
+        let wasMonitoring = isMonitoring
         monitoringTask?.cancel()
         monitoringTask = nil
         if let p = peripheral { central?.cancelPeripheralConnection(p) }
@@ -278,6 +289,9 @@ final class OBDManager: NSObject, ObservableObject {
         connectionStatus = "Отключено"
         isFanCurrentlyOn = false
         currentTemperature = 0.0
+        if wasMonitoring {
+            EventJournal.shared.log(4, temp: 0)
+        }
     }
 }
 
@@ -295,14 +309,24 @@ extension OBDManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
+        if connecting {
+            connecting = false
+            EventJournal.shared.log(5, temp: 0)
+        }
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
     }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        let wasMonitoring = isMonitoring
         isConnected = false
         isMonitoring = false
         monitoringTask?.cancel()
-        EventJournal.shared.log(4, temp: 0)
+        if wasMonitoring {
+            EventJournal.shared.log(4, temp: 0)
+        } else if connecting {
+            connecting = false
+            EventJournal.shared.log(5, temp: 0)
+        }
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
     }
 }
