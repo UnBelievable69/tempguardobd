@@ -4,8 +4,8 @@ struct BluetoothScannerView: View {
 
     @StateObject private var scanner = BluetoothScanner()
     @ObservedObject var settings: SettingsManager
+    @Binding var isPresented: Bool
     var onDeviceSelected: (() -> Void)?
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
@@ -42,7 +42,7 @@ struct BluetoothScannerView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Отмена") {
                         scanner.stopScanning()
-                        dismiss()
+                        isPresented = false
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -133,7 +133,7 @@ struct BluetoothScannerView: View {
         scanner.stopScanning()
         settings.selectedDeviceName = device.name
         settings.selectedDeviceUUID = device.id.uuidString
-        dismiss()
+        isPresented = false
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             onDeviceSelected?()
@@ -203,12 +203,17 @@ struct SignalBarsView: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 2) {
-            ForEach(1...4, id: \.self) { bar in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(bar <= strength.bars ? strength.color : Color(.systemGray4))
-                    .frame(width: 4, height: CGFloat(bar * 4 + 4))
-            }
+            bar(1)
+            bar(2)
+            bar(3)
+            bar(4)
         }
         .frame(height: 22, alignment: .bottom)
+    }
+
+    private func bar(_ level: Int) -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(level <= strength.bars ? strength.color : Color(.systemGray4))
+            .frame(width: 4, height: CGFloat(level * 4 + 4))
     }
 }
