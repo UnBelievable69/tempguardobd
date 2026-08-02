@@ -21,6 +21,7 @@ final class OBDManager: NSObject, ObservableObject {
     private var servicesPending = 0
     private var monitoringTask: Task<Void, Never>?
     private var overheatLogged = false
+    private var session = 0
 
     private let fanOnCommand  = "2F000A06FF"
     private let fanOffCommand = "2F000A00"
@@ -41,76 +42,116 @@ final class OBDManager: NSObject, ObservableObject {
     }
 
     func startConnection() {
+        session += 1
+        let token = session
+
         Task { @MainActor in
-            monitoringTask?.cancel()
-            isConnected = false
-            isMonitoring = false
-            responseBuffer = ""
+            self.monitoringTask?.cancel()
+            self.isConnected = false
+            self.isMonitoring = false
+            self.responseBuffer = ""
 
-            guard !settings.selectedDeviceUUID.isEmpty,
-                  let uuid = UUID(uuidString: settings.selectedDeviceUUID) else {
-                connectionStatus = "Адаптер не выбран"
-                errorMessage = "Сначала выберите адаптер: Настройки → Адаптер → нажмите на устройство в списке."
-                showError = true
-                return
-            }
-
-            connectionStatus = "Подключение к " + settings.selectedDeviceName + "..."
-
-            if central == nil {
-                central = CBCentralManager(delegate: self, queue: .main)
-            }
-
-            if central.state != .poweredOn {
-                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                    stateContinuation = cont
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard let self = self else { return }
+                if self.session == token && !self.isMonitoring {
+                    self.session += 1
+                    self.resetConnectionState()
+                    self.connectionStatus = "Тайм-аут подключения"
+                    self.errorMessage = "Адаптер не ответил за 10 секунд. Убедитесь что зажигание включено и адаптер вставлен в OBD2 разъём."
+                    self.showError = true
                 }
             }
 
-            guard central.state == .poweredOn else {
-                connectionStatus = "Bluetooth не готов"
-                errorMessage = "Включите Bluetooth в Настройках iPhone."
-                showError = true
-                return
-            }
-
-            let list = central.retrievePeripherals(withIdentifiers: [uuid])
-            guard let p = list.first else {
-                connectionStatus = "Адаптер не найден"
-                errorMessage = "Не удалось найти адаптер. Откройте Настройки → Адаптер и выберите его заново."
-                showError = true
-                return
-            }
-
-            peripheral = p
-            p.delegate = self
-
-            let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                connectContinuation = cont
-                central.connect(p, options: nil)
-            }
-
-            guard ok else {
-                connectionStatus = "Ошибка подключения"
-                errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
-                showError = true
-                return
-            }
-
-            connectionStatus = "Инициализация адаптера..."
-            let _ = await sendCommand("ATZ")
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            let _ = await sendCommand("ATE0")
-            let _ = await sendCommand("ATL0")
-            let _ = await sendCommand("ATS0")
-            let _ = await sendCommand("ATSP0")
-            let _ = await sendCommand("0100")
-
-            connectionStatus = "Подключено. Мониторинг..."
-            isMonitoring = true
-            EventJournal.shared.log(3, temp: 0)
-            startTemperatureMonitoring()
+            await self.performConnection(token: token)
         }
+    }
+
+    private func resetConnectionState() {
+        if let p = peripheral { central?.cancelPeripheralConnection(p) }
+        peripheral = nil
+        writeChar = nil
+        notifyChar = nil
+        isConnected = false
+        isMonitoring = false
+    }
+
+    @MainActor
+    private func performConnection(token: Int) async {
+        guard token == session else { return }
+
+        guard !settings.selectedDeviceUUID.isEmpty,
+              let uuid = UUID(uuidString: settings.selectedDeviceUUID) else {
+            session += 1
+            connectionStatus = "Адаптер не выбран"
+            errorMessage = "Сначала выберите адаптер: Настройки → Адаптер → нажмите на устройство в списке."
+            showError = true
+            return
+        }
+
+        connectionStatus = "Подключение к " + settings.selectedDeviceName + "..."
+
+        if central == nil {
+            central = CBCentralManager(delegate: self, queue: .main)
+        }
+
+        if central.state != .poweredOn {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                stateContinuation = cont
+            }
+        }
+        guard token == session else { return }
+
+        guard central.state == .poweredOn else {
+            session += 1
+            connectionStatus = "Bluetooth не готов"
+            errorMessage = "Включите Bluetooth в Настройках iPhone."
+            showError = true
+            return
+        }
+
+        let list = central.retrievePeripherals(withIdentifiers: [uuid])
+        guard let p = list.first else {
+            session += 1
+            connectionStatus = "Адаптер не найден"
+            errorMessage = "Не удалось найти адаптер. Откройте Настройки → Адаптер и выберите его заново."
+            showError = true
+            return
+        }
+
+        peripheral = p
+        p.delegate = self
+
+        let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            connectContinuation = cont
+            central.connect(p, options: nil)
+        }
+        guard token == session else { return }
+
+        guard ok else {
+            session += 1
+            connectionStatus = "Ошибка подключения"
+            errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
+            showError = true
+            return
+        }
+
+        connectionStatus = "Инициализация адаптера..."
+        let _ = await sendCommand("ATZ")
+        guard token == session else { return }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        guard token == session else { return }
+        let _ = await sendCommand("ATE0")
+        let _ = await sendCommand("ATL0")
+        let _ = await sendCommand("ATS0")
+        let _ = await sendCommand("ATSP0")
+        let _ = await sendCommand("0100")
+        guard token == session else { return }
+
+        connectionStatus = "Подключено. Мониторинг..."
+        isMonitoring = true
+        session += 1
+        EventJournal.shared.log(3, temp: 0)
+        startTemperatureMonitoring()
     }
 
     func setFanMode(_ mode: Int) {
@@ -225,6 +266,7 @@ final class OBDManager: NSObject, ObservableObject {
     }
 
     func stopConnection() {
+        session += 1
         monitoringTask?.cancel()
         monitoringTask = nil
         if let p = peripheral { central?.cancelPeripheralConnection(p) }
