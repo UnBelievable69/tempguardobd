@@ -4,6 +4,7 @@ struct SettingsView: View {
 
     @ObservedObject var settings: SettingsManager
     @ObservedObject var obdManager: OBDManager
+    @ObservedObject var journal = EventJournal.shared
     @State private var showScanner = false
 
     var body: some View {
@@ -53,13 +54,14 @@ struct SettingsView: View {
                         Text("Классика").tag(0)
                         Text("График").tag(1)
                         Text("Override").tag(2)
+                        Text("Компакт").tag(3)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 } header: {
                     Text("Экран контроллера")
                 } footer: {
-                    Text("Какой экран показывать на вкладке Контроллер.")
+                    Text("Компакт — температура, график и управление на одном экране.")
                 }
 
                 Section {
@@ -71,7 +73,7 @@ struct SettingsView: View {
                             Text("Журнал событий")
                                 .foregroundColor(.primary)
                             Spacer()
-                            Text(String(EventJournal.shared.events.count))
+                            Text(String(journal.events.count))
                                 .foregroundColor(.secondary)
                         }
                     }
