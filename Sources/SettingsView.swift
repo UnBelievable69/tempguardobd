@@ -56,7 +56,7 @@ struct SettingsView: View {
                             Text("Включение вентилятора")
                                 .font(.headline)
                             Spacer()
-                            Text("\(Int(settings.tempTurnOn))°C")
+                            Text(String(Int(settings.tempTurnOn)) + "°C")
                                 .font(.title2)
                                 .bold()
                                 .foregroundColor(.red)
@@ -71,11 +71,11 @@ struct SettingsView: View {
                         .tint(.red)
 
                         HStack {
-                            Text("\(Int(SettingsManager.minTemp + SettingsManager.minGap))°")
+                            Text(String(Int(SettingsManager.minTemp + SettingsManager.minGap)) + "°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Spacer()
-                            Text("\(Int(SettingsManager.maxTemp))°")
+                            Text(String(Int(SettingsManager.maxTemp)) + "°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
@@ -95,7 +95,7 @@ struct SettingsView: View {
                             Text("Выключение вентилятора")
                                 .font(.headline)
                             Spacer()
-                            Text("\(Int(settings.tempTurnOff))°C")
+                            Text(String(Int(settings.tempTurnOff)) + "°C")
                                 .font(.title2)
                                 .bold()
                                 .foregroundColor(.green)
@@ -110,11 +110,11 @@ struct SettingsView: View {
                         .tint(.green)
 
                         HStack {
-                            Text("\(Int(SettingsManager.minTemp))°")
+                            Text(String(Int(SettingsManager.minTemp)) + "°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Spacer()
-                            Text("\(Int(SettingsManager.maxTemp - SettingsManager.minGap))°")
+                            Text(String(Int(SettingsManager.maxTemp - SettingsManager.minGap)) + "°")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
@@ -132,25 +132,15 @@ struct SettingsView: View {
                             .foregroundColor(.orange)
                         Text("Гистерезис (зазор)")
                         Spacer()
-                        Text("\(Int(settings.hysteresis))°C")
+                        Text(String(Int(settings.hysteresis)) + "°C")
                             .bold()
                             .foregroundColor(.orange)
                             .monospacedDigit()
                     }
-
-                    HysteresisBar(
-                        tempOff: settings.tempTurnOff,
-                        tempOn: settings.tempTurnOn,
-                        minTemp: SettingsManager.minTemp,
-                        maxTemp: SettingsManager.maxTemp
-                    )
-                    .frame(height: 30)
-                    .padding(.vertical, 4)
-
                 } header: {
                     Text("Разница порогов")
                 } footer: {
-                    Text("Минимальный зазор: \(Int(SettingsManager.minGap))°C. Предотвращает частое включение/выключение вентилятора.")
+                    Text("Минимальный зазор: " + String(Int(SettingsManager.minGap)) + "°C. Предотвращает частое включение/выключение вентилятора.")
                 }
 
                 Section {
@@ -209,62 +199,5 @@ struct SettingsView: View {
             }
         }
         .navigationViewStyle(.stack)
-    }
-}
-
-struct HysteresisBar: View {
-    let tempOff: Double
-    let tempOn: Double
-    let minTemp: Double
-    let maxTemp: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            let totalRange  = maxTemp - minTemp
-            let offFraction = (tempOff - minTemp) / totalRange
-            let onFraction  = (tempOn  - minTemp) / totalRange
-
-            ZStack(alignment: .leading) {
-
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(.systemGray5))
-                    .frame(height: 12)
-
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(
-                        LinearGradient(
-                            colors: [.green.opacity(0.5), .orange.opacity(0.5), .red.opacity(0.5)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(
-                        width: max(geo.size.width * (onFraction - offFraction), 8),
-                        height: 12
-                    )
-                    .offset(x: geo.size.width * offFraction)
-
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        Text("\(Int(tempOff))")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.white)
-                    )
-                    .offset(x: geo.size.width * offFraction - 9)
-
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        Text("\(Int(tempOn))")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.white)
-                    )
-                    .offset(x: geo.size.width * onFraction - 9)
-            }
-            .frame(maxHeight: .infinity, alignment: .center)
-        }
     }
 }
