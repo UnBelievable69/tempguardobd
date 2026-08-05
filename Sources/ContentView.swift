@@ -69,6 +69,9 @@ struct ContentView: View {
         } message: {
             Text(obdManager.errorMessage)
         }
+        .sheet(isPresented: $obdManager.showSummary) {
+            SessionSummaryView(summary: obdManager.lastSummary)
+        }
     }
 
     private var compactControls: some View {
@@ -137,9 +140,16 @@ struct ContentView: View {
                     .font(.system(size: 74, weight: .bold, design: .rounded))
                     .foregroundColor(temperatureColor)
                     .monospacedDigit()
+                    .opacity(obdManager.isDataStale ? 0.35 : 1)
                 Text("Температура ОЖ")
                     .font(.subheadline)
                     .foregroundColor(.gray)
+                if obdManager.isDataStale {
+                    Text("Нет свежих данных — проверьте адаптер и зажигание")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .multilineTextAlignment(.center)
+                }
             }
             .padding(.top, 20)
 
@@ -195,5 +205,86 @@ struct ThresholdBadge: View {
         .padding(.vertical, 12)
         .background(color.opacity(0.1))
         .cornerRadius(12)
+    }
+}
+
+struct SessionSummaryView: View {
+    let summary: SessionSummary?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                if let s = summary {
+                    Image(systemName: "flag.checkered")
+                        .font(.system(size: 44))
+                        .foregroundColor(.blue)
+                        .padding(.top, 30)
+
+                    Text("Итог сессии")
+                        .font(.title2)
+                        .bold()
+
+                    VStack(spacing: 0) {
+                        statRow("Время подключения", minutesText(s.duration))
+                        Divider()
+                        statRow("Макс. температура", String(Int(s.maxTemp)) + "°C")
+                        Divider()
+                        statRow("Включений вентилятора", String(s.fanCycles))
+                        Divider()
+                        statRow("Вентилятор работал", minutesText(s.fanOnTime))
+                        Divider()
+                        statRow("Перегревов", String(s.overheats))
+                    }
+                    .padding(.horizontal)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+
+                    Spacer()
+
+                    Button(action: { dismiss() }) {
+                        Text("Готово")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                } else {
+                    Text("Нет данных")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("Итог сессии")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    private func statRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 12)
+            Spacer()
+            Text(value)
+                .bold()
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func minutesText(_ t: TimeInterval) -> String {
+        let total = Int(t)
+        let m = total / 60
+        let s = total % 60
+        if m == 0 {
+            return String(s) + " сек"
+        }
+        return String(m) + " мин " + String(s) + " сек"
     }
 }
