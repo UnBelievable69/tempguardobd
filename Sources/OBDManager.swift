@@ -2,6 +2,14 @@ import Foundation
 import Combine
 import CoreBluetooth
 
+struct SessionSummary {
+    let duration: TimeInterval
+    let maxTemp: Double
+    let fanCycles: Int
+    let overheats: Int
+    let fanOnTime: TimeInterval
+}
+
 final class OBDManager: NSObject, ObservableObject {
 
     private let settings: SettingsManager
@@ -13,6 +21,9 @@ final class OBDManager: NSObject, ObservableObject {
     private var writeType: CBCharacteristicWriteType = .withResponse
     private var isConnected = false
     private var connecting = false
+    private var manualStop = false
+    private var reconnectAttempts = 0
+    private var shouldReconnect = false
 
     private var responseBuffer = ""
     private var pendingSent = ""
@@ -23,6 +34,14 @@ final class OBDManager: NSObject, ObservableObject {
     private var monitoringTask: Task<Void, Never>?
     private var overheatLogged = false
     private var session = 0
+    private var lastReadingTime: Date?
+
+    private var sessionStartTime: Date?
+    private var sessionMaxTemp: Double = 0
+    private var sessionFanCycles = 0
+    private var sessionOverheats = 0
+    private var sessionFanOnTime: TimeInterval = 0
+    private var fanOnSince: Date?
 
     private let fanOnCommand  = "2F000A06FF"
     private let fanOffCommand = "2F000A00"
@@ -36,20 +55,37 @@ final class OBDManager: NSObject, ObservableObject {
     @Published var isMonitoring = false
     @Published var history: [TempPoint] = []
     @Published var fanMode: Int = 0
+    @Published var isDataStale = false
+    @Published var showSummary = false
+    @Published var lastSummary: SessionSummary?
 
     init(settings: SettingsManager) {
         self.settings = settings
         super.init()
     }
 
+    func appDidEnterBackground() {
+        shouldReconnect = isMonitoring
+    }
+
+    func appWillEnterForeground() {
+        if shouldReconnect && !isMonitoring {
+            shouldReconnect = false
+            startConnection()
+        }
+    }
+
     func startConnection() {
         session += 1
         let token = session
+        manualStop = false
 
         Task { @MainActor in
             self.monitoringTask?.cancel()
             self.isConnected = false
             self.isMonitoring = false
+            self.isDataStale = false
+            self.lastReadingTime = nil
             self.responseBuffer = ""
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
@@ -78,6 +114,22 @@ final class OBDManager: NSObject, ObservableObject {
         notifyChar = nil
         isConnected = false
         isMonitoring = false
+    }
+
+    private func resetSessionTrackers() {
+        sessionStartTime = nil
+        sessionMaxTemp = 0
+        sessionFanCycles = 0
+        sessionOverheats = 0
+        sessionFanOnTime = 0
+        fanOnSince = nil
+    }
+
+    private func closeFanOnPeriod() {
+        if let s = fanOnSince {
+            sessionFanOnTime += Date().timeIntervalSince(s)
+            fanOnSince = nil
+        }
     }
 
     @MainActor
@@ -156,9 +208,12 @@ final class OBDManager: NSObject, ObservableObject {
         guard token == session else { return }
 
         connecting = false
+        reconnectAttempts = 0
         connectionStatus = "Подключено. Мониторинг..."
         isMonitoring = true
         session += 1
+        resetSessionTrackers()
+        sessionStartTime = Date()
         EventJournal.shared.log(3, temp: 0)
         startTemperatureMonitoring()
     }
@@ -168,9 +223,12 @@ final class OBDManager: NSObject, ObservableObject {
         guard isConnected else { return }
         if mode == 1 {
             executeCommand(fanOnCommand, targetState: true, statusText: "Принудительно ВКЛ")
+            sessionFanCycles += 1
+            fanOnSince = Date()
             EventJournal.shared.log(0, temp: currentTemperature)
         } else if mode == 2 {
             executeCommand(fanOffCommand, targetState: false, statusText: "Принудительно ВЫКЛ")
+            closeFanOnPeriod()
             EventJournal.shared.log(1, temp: currentTemperature)
         } else {
             connectionStatus = "Подключено. Мониторинг..."
@@ -230,14 +288,18 @@ final class OBDManager: NSObject, ObservableObject {
                         if let v = UInt8(hex, radix: 16) {
                             let temperature = Double(v) - 40.0
                             self.currentTemperature = temperature
+                            self.lastReadingTime = Date()
+                            self.isDataStale = false
+                            self.sessionMaxTemp = Swift.max(self.sessionMaxTemp, temperature)
 
                             self.history.append(TempPoint(time: Date(), temp: temperature))
-                            if self.history.count > 300 {
+                            if self.history.count > 900 {
                                 self.history.removeFirst()
                             }
 
                             if temperature >= 110 && !self.overheatLogged {
                                 self.overheatLogged = true
+                                self.sessionOverheats += 1
                                 EventJournal.shared.log(2, temp: temperature)
                             } else if temperature < 105 {
                                 self.overheatLogged = false
@@ -247,6 +309,10 @@ final class OBDManager: NSObject, ObservableObject {
                             break
                         }
                     }
+                }
+
+                if let t = self.lastReadingTime, Date().timeIntervalSince(t) > 10 {
+                    self.isDataStale = true
                 }
             }
         }
@@ -258,9 +324,12 @@ final class OBDManager: NSObject, ObservableObject {
         let off = settings.tempTurnOff
         if temperature >= on && !isFanCurrentlyOn {
             executeCommand(fanOnCommand, targetState: true, statusText: "Включение вентилятора...")
+            sessionFanCycles += 1
+            fanOnSince = Date()
             EventJournal.shared.log(0, temp: temperature)
         } else if temperature <= off && isFanCurrentlyOn {
             executeCommand(fanOffCommand, targetState: false, statusText: "Отключение вентилятора...")
+            closeFanOnPeriod()
             EventJournal.shared.log(1, temp: temperature)
         }
     }
@@ -276,22 +345,38 @@ final class OBDManager: NSObject, ObservableObject {
 
     func stopConnection() {
         session += 1
+        manualStop = true
         connecting = false
         let wasMonitoring = isMonitoring
         monitoringTask?.cancel()
         monitoringTask = nil
+
+        if wasMonitoring {
+            closeFanOnPeriod()
+            if let start = sessionStartTime {
+                lastSummary = SessionSummary(
+                    duration: Date().timeIntervalSince(start),
+                    maxTemp: sessionMaxTemp,
+                    fanCycles: sessionFanCycles,
+                    overheats: sessionOverheats,
+                    fanOnTime: sessionFanOnTime
+                )
+                showSummary = true
+            }
+            EventJournal.shared.log(4, temp: 0)
+        }
+
         if let p = peripheral { central?.cancelPeripheralConnection(p) }
         peripheral = nil
         writeChar = nil
         notifyChar = nil
         isConnected = false
         isMonitoring = false
+        isDataStale = false
         connectionStatus = "Отключено"
         isFanCurrentlyOn = false
         currentTemperature = 0.0
-        if wasMonitoring {
-            EventJournal.shared.log(4, temp: 0)
-        }
+        resetSessionTrackers()
     }
 }
 
@@ -321,13 +406,25 @@ extension OBDManager: CBCentralManagerDelegate {
         isConnected = false
         isMonitoring = false
         monitoringTask?.cancel()
+
         if wasMonitoring {
             EventJournal.shared.log(4, temp: 0)
         } else if connecting {
             connecting = false
             EventJournal.shared.log(5, temp: 0)
         }
+
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
+
+        if wasMonitoring && !manualStop && reconnectAttempts < 3 {
+            reconnectAttempts += 1
+            connectionStatus = "Переподключение..."
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self = self, !self.isMonitoring, !self.manualStop else { return }
+                self.startConnection()
+            }
+        }
     }
 }
 
