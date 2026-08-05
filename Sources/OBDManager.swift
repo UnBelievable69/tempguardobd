@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import CoreBluetooth
 
+struct TempPoint: Identifiable {
+    let id = UUID()
+    let time: Date
+    let temp: Double
+}
+
 struct SessionSummary {
     let duration: TimeInterval
     let maxTemp: Double
