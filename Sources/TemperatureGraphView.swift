@@ -1,19 +1,16 @@
 import SwiftUI
 
-struct TempPoint: Identifiable {
-    let id = UUID()
-    let time: Date
-    let temp: Double
-}
-
 struct TemperatureGraphView: View {
 
     @ObservedObject var obdManager: OBDManager
     @ObservedObject var settings: SettingsManager
+    @ObservedObject var journal = EventJournal.shared
+
+    @State private var rangeMinutes = 10
+    @State private var scrubTime: Date? = nil
 
     private let minT: Double = 60
     private let maxT: Double = 120
-    private let maxPoints = 150
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -27,19 +24,32 @@ struct TemperatureGraphView: View {
                 .font(.system(size: 54, weight: .bold, design: .rounded))
                 .foregroundColor(tempColor)
                 .monospacedDigit()
+                .opacity(obdManager.isDataStale ? 0.35 : 1)
 
-            if obdManager.history.count > 1 {
+            if obdManager.isDataStale {
+                Text("Нет свежих данных")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            rangeSelector
+
+            if slice.count > 1 {
                 chart
 
                 HStack {
-                    if let firstTime = slice.first?.time {
-                        Text(Self.timeFormatter.string(from: firstTime))
+                    if let first = slice.first {
+                        Text(Self.timeFormatter.string(from: first.time))
                     }
                     Spacer()
                     Text("сейчас")
                 }
                 .font(.caption2)
                 .foregroundColor(.secondary)
+
+                Text("Тяни по графику для просмотра, двойной тап — сброс")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "chart.xyaxis.line")
@@ -61,15 +71,72 @@ struct TemperatureGraphView: View {
     }
 
     private var tempColor: Color {
-        if obdManager.currentTemperature >= settings.tempTurnOn { return .red }
+        if obdManager.currentTemperature >= settings.tempTurnOn  { return .red }
         if obdManager.currentTemperature >= settings.tempTurnOff { return .orange }
         return .blue
     }
 
+    private var rangeSelector: some View {
+        HStack(spacing: 0) {
+            rangeButton(5)
+            rangeButton(10)
+            rangeButton(30)
+        }
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+        .frame(maxWidth: 240)
+    }
+
+    private func rangeButton(_ minutes: Int) -> some View {
+        Button(action: {
+            rangeMinutes = minutes
+            scrubTime = nil
+        }) {
+            Text(String(minutes) + " мин")
+                .font(.caption)
+                .bold()
+                .foregroundColor(rangeMinutes == minutes ? .white : .secondary)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(rangeMinutes == minutes ? Color.blue : Color.clear)
+                .cornerRadius(10)
+        }
+    }
+
     private var slice: [TempPoint] {
-        let pts = obdManager.history
-        if pts.count <= maxPoints { return pts }
-        return Array(pts[(pts.count - maxPoints)...])
+        let cutoff = Date().addingTimeInterval(-Double(rangeMinutes) * 60)
+        return obdManager.history.filter { $0.time >= cutoff }
+    }
+
+    private var t0: Date { slice.first?.time ?? Date() }
+    private var t1: Date { slice.last?.time ?? Date() }
+    private var span: TimeInterval { max(t1.timeIntervalSince(t0), 1) }
+
+    private var visibleEvents: [LogEvent] {
+        journal.events.filter { ($0.type == 0 || $0.type == 1) && $0.time >= t0 && $0.time <= t1 }
+    }
+
+    private func xFor(_ time: Date, w: CGFloat) -> CGFloat {
+        CGFloat(time.timeIntervalSince(t0) / span) * w
+    }
+
+    private func timeAt(x: CGFloat, w: CGFloat) -> Date {
+        let frac = Double(min(max(x / w, 0), 1))
+        return t0.addingTimeInterval(frac * span)
+    }
+
+    private func yFor(_ temp: Double, h: CGFloat) -> CGFloat {
+        let frac = (temp - minT) / (maxT - minT)
+        let clamped = min(max(frac, 0), 1)
+        return h - CGFloat(clamped) * h
+    }
+
+    private func pointAt(_ i: Int, pts: [TempPoint], w: CGFloat, h: CGFloat) -> CGPoint {
+        CGPoint(x: xFor(pts[i].time, w: w), y: yFor(pts[i].temp, h: h))
+    }
+
+    private func nearestPoint(to time: Date) -> TempPoint? {
+        slice.min(by: { abs($0.time.timeIntervalSince(time)) < abs($1.time.timeIntervalSince(time)) })
     }
 
     private var chart: some View {
@@ -100,25 +167,26 @@ struct TemperatureGraphView: View {
                     )
                     .shadow(color: .orange.opacity(0.7), radius: 6)
 
+                eventDots(w: w, h: h)
+
                 lastDot(w: w, h: h)
+
+                scrubOverlay(w: w, h: h)
             }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        scrubTime = timeAt(x: value.location.x, w: w)
+                    }
+            )
+            .onTapGesture(count: 2) { scrubTime = nil }
         }
         .frame(height: 240)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.systemGray6).opacity(0.5))
         )
-    }
-
-    private func yFor(_ temp: Double, h: CGFloat) -> CGFloat {
-        let frac = (temp - minT) / (maxT - minT)
-        let clamped = min(max(frac, 0), 1)
-        return h - CGFloat(clamped) * h
-    }
-
-    private func pointAt(_ i: Int, pts: [TempPoint], w: CGFloat, h: CGFloat) -> CGPoint {
-        let x = CGFloat(i) / CGFloat(max(pts.count - 1, 1)) * w
-        return CGPoint(x: x, y: yFor(pts[i].temp, h: h))
     }
 
     private func curvePath(w: CGFloat, h: CGFloat) -> Path {
@@ -163,6 +231,15 @@ struct TemperatureGraphView: View {
         }
     }
 
+    private func eventDots(w: CGFloat, h: CGFloat) -> some View {
+        ForEach(visibleEvents) { event in
+            Circle()
+                .fill(event.type == 0 ? Color.red : Color.green)
+                .frame(width: 8, height: 8)
+                .offset(x: xFor(event.time, w: w) - 4, y: yFor(event.temp, h: h) - 4)
+        }
+    }
+
     private func lastDot(w: CGFloat, h: CGFloat) -> some View {
         Group {
             if !slice.isEmpty {
@@ -172,6 +249,34 @@ struct TemperatureGraphView: View {
                     .frame(width: 10, height: 10)
                     .shadow(color: .orange, radius: 6)
                     .offset(x: pt.x - 5, y: pt.y - 5)
+            }
+        }
+    }
+
+    private func scrubOverlay(w: CGFloat, h: CGFloat) -> some View {
+        Group {
+            if let st = scrubTime, let pt = nearestPoint(to: st) {
+                let x = xFor(pt.time, w: w)
+                let y = yFor(pt.temp, h: h)
+
+                Path { p in
+                    p.move(to: CGPoint(x: x, y: 0))
+                    p.addLine(to: CGPoint(x: x, y: h))
+                }
+                .stroke(Color.white.opacity(0.4), lineWidth: 1)
+
+                Circle()
+                    .stroke(Color.white, lineWidth: 2)
+                    .frame(width: 14, height: 14)
+                    .offset(x: x - 7, y: y - 7)
+
+                Text(Self.timeFormatter.string(from: pt.time) + " · " + String(Int(pt.temp)) + "°")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .offset(x: min(max(x - 45, 0), w - 90), y: 0)
             }
         }
     }
