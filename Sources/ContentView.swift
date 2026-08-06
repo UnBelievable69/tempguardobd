@@ -70,7 +70,9 @@ struct ContentView: View {
             Text(obdManager.errorMessage)
         }
         .sheet(isPresented: $obdManager.showSummary) {
-            SessionSummaryView(summary: obdManager.lastSummary)
+            SessionSummaryView(summary: obdManager.lastSummary) {
+                obdManager.dismissSummary()
+            }
         }
     }
 
@@ -210,6 +212,7 @@ struct ThresholdBadge: View {
 
 struct SessionSummaryView: View {
     let summary: SessionSummary?
+    let onDismiss: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -263,6 +266,9 @@ struct SessionSummaryView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .navigationViewStyle(.stack)
+        .onDisappear {
+            onDismiss()
+        }
     }
 
     private func statRow(_ title: String, _ value: String) -> some View {
