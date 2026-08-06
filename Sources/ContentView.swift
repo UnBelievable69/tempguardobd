@@ -9,7 +9,10 @@ struct ContentView: View {
             VStack(spacing: 16) {
 
                 if settings.displayMode == 1 {
-                    TemperatureGraphView(obdManager: obdManager, settings: settings)
+                    ScrollView(showsIndicators: false) {
+                        TemperatureGraphView(obdManager: obdManager, settings: settings)
+                            .padding(.bottom, 8)
+                    }
                 } else if settings.displayMode == 2 {
                     FanOverrideView(obdManager: obdManager)
                 } else if settings.displayMode == 3 {
@@ -111,6 +114,7 @@ struct ContentView: View {
     }
 
     private var fanStatusText: String {
+        if !obdManager.isMonitoring { return "Нет подключения" }
         if obdManager.fanMode == 1 { return "Вентилятор: ВКЛ" }
         if obdManager.fanMode == 2 { return "Вентилятор: ВЫКЛ" }
         return obdManager.isFanCurrentlyOn ? "Вентилятор: ВКЛ" : "Вентилятор: АВТО (ВЫКЛ)"
