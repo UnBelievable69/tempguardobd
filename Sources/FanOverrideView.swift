@@ -26,8 +26,7 @@ struct FanOverrideView: View {
             .frame(width: 230, height: 230)
             .onReceive(spinTimer) { _ in
                 if obdManager.isFanCurrentlyOn {
-                    angle = angle + 8
-                    if angle > 360 { angle = angle - 360 }
+                    angle = (angle + 8).truncatingRemainder(dividingBy: 360)
                 }
             }
 
