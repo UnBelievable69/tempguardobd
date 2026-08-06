@@ -113,7 +113,10 @@ struct TemperatureGraphView: View {
     private var span: TimeInterval { max(t1.timeIntervalSince(t0), 1) }
 
     private var visibleEvents: [LogEvent] {
-        journal.events.filter { ($0.type == 0 || $0.type == 1) && $0.time >= t0 && $0.time <= t1 }
+        journal.events.filter {
+            ($0.type == 0 || $0.type == 1 || $0.type == 2) &&
+            $0.time >= t0 && $0.time <= t1
+        }
     }
 
     private func xFor(_ time: Date, w: CGFloat) -> CGFloat {
@@ -234,9 +237,18 @@ struct TemperatureGraphView: View {
     private func eventDots(w: CGFloat, h: CGFloat) -> some View {
         ForEach(visibleEvents) { event in
             Circle()
-                .fill(event.type == 0 ? Color.red : Color.green)
+                .fill(colorFor(event.type))
                 .frame(width: 8, height: 8)
                 .offset(x: xFor(event.time, w: w) - 4, y: yFor(event.temp, h: h) - 4)
+        }
+    }
+
+    private func colorFor(_ type: Int) -> Color {
+        switch type {
+        case 0: return .red
+        case 1: return .green
+        case 2: return .orange
+        default: return .gray
         }
     }
 
