@@ -46,7 +46,7 @@ final class SettingsManager: ObservableObject {
             isSyncing = true
             defer { isSyncing = false }
 
-            var off = Self.clamp(tempTurnOff, min: Self.minTemp, max: Self.minTemp)
+            var off = Self.clamp(tempTurnOff, min: Self.minTemp, max: Self.maxTemp)
             var on  = tempTurnOn
 
             if on < off + Self.minGap {
