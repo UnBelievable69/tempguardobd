@@ -28,6 +28,7 @@ final class OBDManager: NSObject, ObservableObject {
     private var isConnected = false
     private var connecting = false
     private var manualStop = false
+    private var autoRetrying = false
     private var reconnectAttempts = 0
     private var shouldReconnect = false
 
@@ -85,10 +86,13 @@ final class OBDManager: NSObject, ObservableObject {
         }
     }
 
-    func startConnection() {
+    func startConnection(auto: Bool = false) {
         session += 1
         let token = session
         manualStop = false
+        if !auto {
+            autoRetrying = false
+        }
 
         Task { @MainActor in
             self.monitoringTask?.cancel()
@@ -108,8 +112,10 @@ final class OBDManager: NSObject, ObservableObject {
                     }
                     self.resetConnectionState()
                     self.connectionStatus = "Тайм-аут подключения"
-                    self.errorMessage = "Адаптер не ответил за 10 секунд. Убедитесь что зажигание включено и адаптер вставлен в OBD2 разъём."
-                    self.showError = true
+                    if !self.autoRetrying {
+                        self.errorMessage = "Адаптер не ответил за 10 секунд. Убедитесь что зажигание включено и адаптер вставлен в OBD2 разъём."
+                        self.showError = true
+                    }
                 }
             }
 
@@ -149,6 +155,7 @@ final class OBDManager: NSObject, ObservableObject {
         guard !settings.selectedDeviceUUID.isEmpty,
               let uuid = UUID(uuidString: settings.selectedDeviceUUID) else {
             session += 1
+            autoRetrying = false
             connectionStatus = "Адаптер не выбран"
             errorMessage = "Сначала выберите адаптер: Настройки → Адаптер → нажмите на устройство в списке."
             showError = true
@@ -171,8 +178,10 @@ final class OBDManager: NSObject, ObservableObject {
         guard central.state == .poweredOn else {
             session += 1
             connectionStatus = "Bluetooth не готов"
-            errorMessage = "Включите Bluetooth в Настройках iPhone."
-            showError = true
+            if !autoRetrying {
+                errorMessage = "Включите Bluetooth в Настройках iPhone."
+                showError = true
+            }
             return
         }
 
@@ -180,8 +189,11 @@ final class OBDManager: NSObject, ObservableObject {
         guard let p = list.first else {
             session += 1
             connectionStatus = "Адаптер не найден"
-            errorMessage = "Не удалось найти адаптер. Откройте Настройки → Адаптер и выберите его заново."
-            showError = true
+            if !autoRetrying {
+                errorMessage = "Не удалось найти адаптер. Откройте Настройки → Адаптер и выберите его заново."
+                showError = true
+            }
+            attemptReconnect()
             return
         }
 
@@ -200,8 +212,10 @@ final class OBDManager: NSObject, ObservableObject {
             connecting = false
             EventJournal.shared.log(5, temp: 0)
             connectionStatus = "Ошибка подключения"
-            errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
-            showError = true
+            if !autoRetrying {
+                errorMessage = "Bluetooth соединение не установлено. Убедитесь что адаптер в машине и зажигание включено."
+                showError = true
+            }
             return
         }
 
@@ -219,6 +233,7 @@ final class OBDManager: NSObject, ObservableObject {
 
         connecting = false
         reconnectAttempts = 0
+        autoRetrying = false
         connectionStatus = "Подключено. Мониторинг..."
         isMonitoring = true
         session += 1
@@ -226,6 +241,14 @@ final class OBDManager: NSObject, ObservableObject {
         sessionStartTime = Date()
         EventJournal.shared.log(3, temp: 0)
         startTemperatureMonitoring()
+
+        if fanMode == 1 {
+            executeCommand(fanOnCommand, targetState: true, statusText: "Принудительно ВКЛ")
+            sessionFanCycles += 1
+            fanOnSince = Date()
+        } else if fanMode == 2 {
+            executeCommand(fanOffCommand, targetState: false, statusText: "Принудительно ВЫКЛ")
+        }
     }
 
     func setFanMode(_ mode: Int) {
@@ -366,6 +389,7 @@ final class OBDManager: NSObject, ObservableObject {
     func stopConnection() {
         session += 1
         manualStop = true
+        autoRetrying = false
         connecting = false
         let wasMonitoring = isMonitoring
         monitoringTask?.cancel()
@@ -373,7 +397,7 @@ final class OBDManager: NSObject, ObservableObject {
 
         if wasMonitoring {
             closeFanOnPeriod()
-            if let start = sessionStartTime {
+            if let start = sessionStartTime, sessionMaxTemp > 0 {
                 lastSummary = SessionSummary(
                     duration: Date().timeIntervalSince(start),
                     maxTemp: sessionMaxTemp,
@@ -400,13 +424,17 @@ final class OBDManager: NSObject, ObservableObject {
     }
 
     private func attemptReconnect() {
-        guard !manualStop && reconnectAttempts < 3 else { return }
+        guard !manualStop && reconnectAttempts < 3 else {
+            autoRetrying = false
+            return
+        }
         reconnectAttempts += 1
+        autoRetrying = true
         connectionStatus = "Переподключение..."
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self = self, !self.isMonitoring, !self.manualStop else { return }
-            self.startConnection()
+            self.startConnection(auto: true)
         }
     }
 }
@@ -437,6 +465,7 @@ extension OBDManager: CBCentralManagerDelegate {
         let wasMonitoring = isMonitoring
         isConnected = false
         isMonitoring = false
+        isFanCurrentlyOn = false
         monitoringTask?.cancel()
 
         if wasMonitoring {
