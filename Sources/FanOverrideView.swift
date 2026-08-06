@@ -57,12 +57,14 @@ struct FanOverrideView: View {
     }
 
     private var ringColor: Color {
+        if !obdManager.isMonitoring { return .gray }
         if obdManager.fanMode == 1 { return .red }
         if obdManager.fanMode == 2 { return .green }
         return obdManager.isFanCurrentlyOn ? .orange : .blue
     }
 
     private var modeTitle: String {
+        if !obdManager.isMonitoring { return "НЕТ ПОДКЛЮЧЕНИЯ" }
         if obdManager.fanMode == 1 { return "ПРИНУДИТЕЛЬНО ВКЛ" }
         if obdManager.fanMode == 2 { return "ПРИНУДИТЕЛЬНО ВЫКЛ" }
         return "АВТОМАТИЧЕСКИЙ РЕЖИМ"
