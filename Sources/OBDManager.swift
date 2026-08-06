@@ -70,8 +70,12 @@ final class OBDManager: NSObject, ObservableObject {
         super.init()
     }
 
+    func dismissSummary() {
+        showSummary = false
+    }
+
     func appDidEnterBackground() {
-        shouldReconnect = isMonitoring
+        shouldReconnect = isMonitoring || connecting
     }
 
     func appWillEnterForeground() {
@@ -225,16 +229,26 @@ final class OBDManager: NSObject, ObservableObject {
     }
 
     func setFanMode(_ mode: Int) {
+        let previousMode = fanMode
         fanMode = mode
         guard isConnected else { return }
+
+        if previousMode == 1 && mode != 1 {
+            closeFanOnPeriod()
+        }
+
         if mode == 1 {
             executeCommand(fanOnCommand, targetState: true, statusText: "Принудительно ВКЛ")
-            sessionFanCycles += 1
-            fanOnSince = Date()
+            if !isFanCurrentlyOn {
+                sessionFanCycles += 1
+                fanOnSince = Date()
+            }
             EventJournal.shared.log(0, temp: currentTemperature)
         } else if mode == 2 {
             executeCommand(fanOffCommand, targetState: false, statusText: "Принудительно ВЫКЛ")
-            closeFanOnPeriod()
+            if isFanCurrentlyOn {
+                closeFanOnPeriod()
+            }
             EventJournal.shared.log(1, temp: currentTemperature)
         } else {
             connectionStatus = "Подключено. Мониторинг..."
@@ -384,6 +398,17 @@ final class OBDManager: NSObject, ObservableObject {
         currentTemperature = 0.0
         resetSessionTrackers()
     }
+
+    private func attemptReconnect() {
+        guard !manualStop && reconnectAttempts < 3 else { return }
+        reconnectAttempts += 1
+        connectionStatus = "Переподключение..."
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self = self, !self.isMonitoring, !self.manualStop else { return }
+            self.startConnection()
+        }
+    }
 }
 
 extension OBDManager: CBCentralManagerDelegate {
@@ -405,6 +430,7 @@ extension OBDManager: CBCentralManagerDelegate {
             EventJournal.shared.log(5, temp: 0)
         }
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
+        attemptReconnect()
     }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
@@ -422,15 +448,7 @@ extension OBDManager: CBCentralManagerDelegate {
 
         if let cont = connectContinuation { connectContinuation = nil; cont.resume(returning: false) }
 
-        if wasMonitoring && !manualStop && reconnectAttempts < 3 {
-            reconnectAttempts += 1
-            connectionStatus = "Переподключение..."
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self = self, !self.isMonitoring, !self.manualStop else { return }
-                self.startConnection()
-            }
-        }
+        attemptReconnect()
     }
 }
 
