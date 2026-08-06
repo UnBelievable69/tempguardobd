@@ -6,7 +6,7 @@ struct JournalView: View {
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.dateFormat = "dd.MM HH:mm"
         return f
     }()
 
